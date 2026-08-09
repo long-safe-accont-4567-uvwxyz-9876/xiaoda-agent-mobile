@@ -9,9 +9,6 @@
   "excluded_tools": [
     "call_xiaoda",
     "call_xiaoli",
-    "gpio_control",
-    "hardware_status",
-    "i2c_comm",
     "mcp_git_git_add",
     "mcp_git_git_branch",
     "mcp_git_git_checkout",
@@ -50,7 +47,6 @@
     "mcp_github_search_users",
     "mcp_github_update_issue",
     "mcp_github_update_pull_request_branch",
-    "pwm_control",
     "python_executor",
     "shell_command",
     "write_file"

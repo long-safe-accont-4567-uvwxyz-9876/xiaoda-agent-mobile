@@ -1,7 +1,8 @@
-from typing import Any
 import os
-import sys
 import shutil
+import sys
+from typing import Any
+
 from loguru import logger
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -150,7 +151,7 @@ OPTIONAL_KEYS = [
     {
         "key": "EMBED_API_KEY",
         "label": "向量嵌入 API 密钥（选填）",
-        "desc": "远程向量嵌入密钥。默认使用本地内置 BGE 模型（NPU/CPU 推理），仅当 EMBED_MODE=remote 或需要硅基流动嵌入时才需填写",
+        "desc": "远程向量嵌入密钥。默认使用本地内置 BGE CPU 模型，仅当 EMBED_MODE=remote 或需要硅基流动嵌入时才需填写",
         "url": "https://cloud.siliconflow.cn/i/iM5RmeWc",
         "url_desc": "注册 → API Keys → 复制",
     },
@@ -359,7 +360,7 @@ def is_first_run() -> bool:
     SILICONFLOW_API_KEY）。任一为空都进入首次配置，避免漏配导致主程序启动后
     报错"没有填"卡死。
 
-    注：EMBED_API_KEY 原为必填；迁移本地向量模型（NPU/CPU 内置 BGE）后
+    注：EMBED_API_KEY 原为必填；迁移本地 CPU 向量模型后
     已改为选填（见 OPTIONAL_KEYS），远程嵌入需求由 SILICONFLOW_API_KEY
     兜底，缺失时降级本地推理，不再阻塞向导完成。
 

@@ -167,10 +167,8 @@ xiaoda-agent 是一个多模态 AI Agent 平台，支持多 Agent 协作、记�
 | 增强浏览 | `tools/web_browse_enhanced.py` | 深度网页分析、截图 |
 | 网络搜索 | `tools/web_tools_v2.py` | 多引擎搜索聚合 |
 | 邮件工具 | `tools/mail_tools.py` | 邮件收发管理 |
-| 硬件工具 | `tools/hardware_tools.py` | I2C/SPI/GPIO 硬件交互 |
 | 系统工具 | `tools/system_tools.py` | 系统信息、进程管理 |
 | 记忆工具 | `tools/memory_tool.py` | 记忆查询与操作 |
-| 视觉工具 | `tools/vision_tools.py` | 图像分析 |
 | 文档工具 | `tools/document_tools.py` | 文档解析与转换 |
 | 国内搜索 | `tools/domestic_search_tools.py` | 国内搜索引擎适配 |
 | 多源搜索 | `tools/multi_search_tools.py` | 多源搜索聚合 |

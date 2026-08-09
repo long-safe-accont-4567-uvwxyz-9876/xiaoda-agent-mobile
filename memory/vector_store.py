@@ -1,14 +1,14 @@
-from typing import Any
+import asyncio
+import hashlib
 import json
 import os
 import sys
-import asyncio
-import hashlib
 import threading
 from collections import OrderedDict
 from pathlib import Path
-from loguru import logger
+from typing import Any
 
+from loguru import logger
 
 from utils.common import safe_int as _safe_int
 
@@ -19,7 +19,7 @@ except ImportError:
     HAS_SQLITE_VEC = False
 
 try:
-    from openai import AsyncOpenAI, APITimeoutError, APIConnectionError, APIStatusError
+    from openai import APIConnectionError, APIStatusError, APITimeoutError, AsyncOpenAI
     HAS_OPENAI = True
 except ImportError:
     HAS_OPENAI = False
@@ -40,8 +40,10 @@ except ImportError:
 #   占用连接池资源 → 后续请求也慢 → 向量检索 1.2-8s 波动（日志铁证）。
 # read=5s 治本：embed 正常 0.5-2s，5s 覆盖+3s 余量；偶发慢 5s 快速失败，
 #   不依赖外层 cancel，从源头消除连接池污染。
-from utils.http_pool import get_shared_client as _get_embed_shared_client
 import httpx as _httpx_embed
+
+from utils.http_pool import get_shared_client as _get_embed_shared_client
+
 _EMBED_HTTP_TIMEOUT = _httpx_embed.Timeout(connect=15.0, read=5.0, write=10.0, pool=10.0)
 
 
@@ -162,16 +164,9 @@ class VectorStore:
 
         if self._embed_mode == "local":
             # 本地推理：不依赖远程 API Key / 网络，模型加载为懒加载。
-            # 后端由 LOCAL_EMBED_BACKEND 选择：
-            #   auto（默认）→ AdaptiveEmbeddingProvider 启动时探测 NPU，
-            #     有 VIP9000 走长短自适应（短文本 CPU / 长文本 NPU 常驻子进程），
-            #     无 NPU（纯 CPU 机器/Windows 打包版/无 sudo）自动降级全 CPU；
-            #   npu → 强制走自适应（探测失败仍降级 CPU）；
-            #   cpu → 显式纯 CPU（onnxruntime）。
             self._local_provider = self._build_local_provider()
             if self._local_provider is not None:
-                logger.info("vector_store.local_embed_enabled backend={} model_dir={}",
-                            os.getenv("LOCAL_EMBED_BACKEND", "auto"), self._local_model_dir)
+                logger.info("vector_store.local_embed_enabled backend=cpu model_dir={}", self._local_model_dir)
             else:
                 logger.warning("vector_store.local_embed_init_failed provider=None")
         elif HAS_OPENAI and self._embed_api_key:
@@ -180,15 +175,8 @@ class VectorStore:
     # ── embedding 引擎构建 / 热切换（WebUI 本地部署页）──────────
 
     def _build_local_provider(self) -> Any:
-        """按 LOCAL_EMBED_BACKEND 构建本地 embedding provider（幂等）。"""
+        """构建本地 CPU embedding provider（幂等）。"""
         try:
-            backend = os.getenv("LOCAL_EMBED_BACKEND", "auto")
-            if backend in ("npu", "auto"):
-                from memory.npu_embed import AdaptiveEmbeddingProvider
-                return AdaptiveEmbeddingProvider(
-                    self._local_model_dir,
-                    query_prefix=self._local_query_prefix,
-                )
             from memory.local_embed import LocalEmbeddingProvider
             return LocalEmbeddingProvider(
                 self._local_model_dir,
@@ -222,7 +210,7 @@ class VectorStore:
         return {
             "mode": self._embed_mode,
             "engine_running": running,
-            "backend": os.getenv("LOCAL_EMBED_BACKEND", "auto"),
+            "backend": "cpu",
             "api_configured": bool(
                 self._embed_api_key or os.getenv("SILICONFLOW_API_KEY", "")),
             "model_dir": self._local_model_dir,
@@ -233,7 +221,7 @@ class VectorStore:
         """运行时切换 embedding 引擎（local=本地模型 / remote=远程 API）。
 
         幂等：目标模式与当前一致时直接返回现状。切换时释放旧本地引擎资源
-        （onnxruntime session / NPU 常驻进程）；远程 client 由共享 httpx
+        （onnxruntime session）；远程 client 由共享 httpx
         连接池管理，仅释放引用。构建失败自动回退另一模式并告警。
         """
         mode = (mode or "remote").strip().lower()
@@ -272,7 +260,7 @@ class VectorStore:
             return self.embed_engine_status()
 
     def start_local_engine(self) -> dict:
-        """启动本地 embedding 引擎：确保 local 模式 + 预加载模型（含 NPU 探测）。
+        """启动本地 embedding 引擎：确保 local 模式并预加载 CPU 模型。
 
         WebUI 本地部署页"启动"按钮：使用本地模型前必须先启动。
         """
@@ -293,7 +281,7 @@ class VectorStore:
             return self.embed_engine_status()
 
     def stop_local_engine(self) -> dict:
-        """停止本地 embedding 引擎：释放 onnxruntime session / NPU 常驻进程。"""
+        """停止本地 embedding 引擎：释放 onnxruntime session。"""
         with self._lock:
             if self._local_provider is not None:
                 try:
@@ -338,6 +326,7 @@ class VectorStore:
 
                     # 检测文件系统类型，vfat/exfat 不支持 WAL
                     from pathlib import Path
+
                     from db.database import _detect_fs_type
                     fs_type = _detect_fs_type(Path(self._db_path))
                     is_fat = fs_type in ("vfat", "fat", "msdos", "exfat", "fat32")
@@ -373,7 +362,6 @@ class VectorStore:
                                 "SELECT embedding FROM memories_vec LIMIT 1"
                             ).fetchone()
                             if row is not None and row[0] is not None:
-                                import struct
                                 raw = row[0]
                                 if isinstance(raw, (bytes, bytearray)):
                                     dims = len(raw) // 4
@@ -396,7 +384,6 @@ class VectorStore:
                                 "SELECT embedding FROM memories_vec LIMIT 1"
                             ).fetchone()
                             if row is not None and row[0] is not None:
-                                import struct
                                 raw = row[0]
                                 if isinstance(raw, (bytes, bytearray)):
                                     existing_dims = len(raw) // 4

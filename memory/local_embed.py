@@ -1,8 +1,6 @@
 """本地 Embedding Provider — onnxruntime CPU 推理 BGE-small-zh-v1.5。
 
-香橙派本地向量化（先 CPU 后 NPU，2026-08-07 决策）：
-- 模型：Xenova/bge-small-zh-v1.5 ONNX（fp32，512 维，CPU 阶段）
-        onnx/model_int8.onnx（INT8，后续 NPU 阶段替换 provider 即可）
+- 模型：Xenova/bge-small-zh-v1.5 ONNX（fp32，512 维）
 - 推理：onnxruntime CPUExecutionProvider；CPU 推理走 to_thread，不阻塞事件循环
 - 分词：tokenizers.Tokenizer.from_file（加载 tokenizer.json，无需 transformers/torch）
 - 池化：CLS 池化 + L2 归一化（BGE 官方要求，输出可直接做点积/余弦相似度）

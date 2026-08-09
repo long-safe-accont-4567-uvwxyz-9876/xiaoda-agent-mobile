@@ -1,18 +1,20 @@
-import os
-import sys
-import time
-import random
 import asyncio
+import contextlib
+import os
+import random
+import sys
 import threading
+import time
 from collections.abc import Callable
-from loguru import logger
-
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from dotenv import load_dotenv
-load_dotenv()
+from loguru import logger
 
+import cli_client
 from utils.logging_config import setup_logging
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+load_dotenv()
 setup_logging()
 logger.remove()
 logger.add(
@@ -20,9 +22,6 @@ logger.add(
     format="<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{extra[trace_id]}</cyan> | {message}",
     level="WARNING",
 )
-
-import cli_client
-import contextlib
 
 # ── prompt_toolkit 支持（/ 弹出下拉 + 菜单选择）──────────────
 # 缺失时优雅回退到 readline 路径，不崩溃（旧安装包兼容）。
@@ -80,7 +79,7 @@ def _all_command_names() -> list[str]:
 _ALL_CMD_NAMES = _all_command_names()  # 与 WebUI 同源（COMMAND_DESCRIPTIONS + 别名）
 
 # 多步命令：无参数时弹出菜单选择，Esc 取消不误发裸命令
-_MULTI_STEP_COMMANDS = {"/model", "/agent", "/voice", "/doctor", "/cost", "/cam"}
+_MULTI_STEP_COMMANDS = {"/model", "/agent", "/voice", "/doctor", "/cost"}
 
 # /model 参数补全缓存：客户端模式下 CLI 进程内没有模型路由缓存，需从主进程
 # discover_models 拉取后在这里维护，供补全作本地查询（避免每次敲 Tab 都发 HTTP）。
@@ -278,7 +277,6 @@ STATUS_MAP = {
     "browse": "🌐 人家去网上看看～",
     "shell": "💻 人家在跑命令～",
     "python": "🐍 人家在算东西～",
-    "camera": "📷 人家看看摄像头～",
     "xiaoda_done": "🌿 小妲整理好了！",
     "xiaoli_done": "💥 小莉完成啦！",
     "xiaolian_done": "🌸 小涟完成啦！",
@@ -289,7 +287,7 @@ STATUS_MAP = {
 
 # IP-safe: 动态从 config/agents/*.json 读取 display_name，避免硬编码原名
 try:
-    from config import get_agent_display_name, agent_names
+    from config import agent_names, get_agent_display_name
     from emotion.emoji_config import get_ack_message
     AGENT_NAMES = {name: get_agent_display_name(name) for name in agent_names()}
     # ACK 消息使用自定义配置（随心即言）
@@ -371,7 +369,6 @@ def _status_translate(msg: str) -> str:
             "网页": "🌐 人家去网上看看～",
             "命令": "💻 人家在跑命令～",
             "python": "🐍 人家在算东西～",
-            "摄像": "📷 人家看看摄像头～",
         }
         for hint, val in tool_hints.items():
             if hint in msg:
@@ -497,7 +494,6 @@ class CLIInterface:
             "/voice": _fixed("/voice", ["on", "off"]),
             "/doctor": _fixed("/doctor", ["json", "fix"]),
             "/cost": _fixed("/cost", ["7d"]),
-            "/cam": _fixed("/cam", ["snap"]),
         }
 
         nodes: list[PaletteNode] = []
@@ -595,8 +591,6 @@ class CLIInterface:
             return self._menu_fixed("/doctor", ["json", "fix"])
         if cmd == "/cost":
             return self._menu_fixed("/cost", ["7d"])
-        if cmd == "/cam":
-            return self._menu_fixed("/cam", ["snap"])
         return None
 
     # ── 主进程连接 ────────────────────────────────────────────
@@ -751,7 +745,7 @@ class CLIInterface:
     def _dispatch_slash_command(self, text: str) -> None:
         """分发斜杠命令：/help 本地展示，其余交给主进程共享 AgentCore 处理。
 
-        多步命令（/model /agent /voice /doctor /cost /cam）在无参数时先弹菜单选择，
+        多步命令（/model /agent /voice /doctor /cost）在无参数时先弹菜单选择，
         拼接完整命令后发送；有参数则直接发送。主进程 core.process() 内部识别并
         执行命令，故 CLI 无需本地 AgentCore。
         """

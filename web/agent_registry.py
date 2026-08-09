@@ -7,7 +7,6 @@
   因为 SubAgent._filtered_tools() 每次对话时实时计算）
 """
 from __future__ import annotations
-from typing import Any, ClassVar
 
 import hashlib
 import json
@@ -15,11 +14,13 @@ import shutil
 import sys
 import time
 from pathlib import Path
+from typing import Any, ClassVar
 
 from loguru import logger
 
 # frozen 模式下使用用户目录（~/.ai-agent/data/config/agents/），避免写入 _MEIPASS 只读目录
-from config import AGENTS_CONFIG_DIR, DEFAULT_PROVIDER, MEDIA_DIR, _FALLBACK_BASE, get_agent_display_name
+import config as _config
+from config import _FALLBACK_BASE, AGENTS_CONFIG_DIR, DEFAULT_PROVIDER, MEDIA_DIR, get_agent_display_name
 
 
 def _resolve_personality_path(pf: str) -> str | None:
@@ -56,7 +57,7 @@ def _resolve_personality_path(pf: str) -> str | None:
         if c.exists():
             return str(c)
     return None
-import config as _config
+
 AGENTS_DIR = AGENTS_CONFIG_DIR
 BUILTIN_AGENTS = {"xiaoli", "xiaolang", "xiaolian", "xiaoke"}
 
@@ -375,8 +376,8 @@ class AgentRegistry:
         "xiaolang": {
             "display_name": "小狼", "display_name_en": "Xiaolang",
             "provider": "default", "model": "default",
-            "route_description": "编程、代码编写、调试、技术问题、硬件控制、系统运维、开发辅助",
-            "capabilities": ["coding", "debug", "script", "programming", "hardware", "system", "devops"],
+            "route_description": "编程、代码编写、调试、技术问题、系统运维、开发辅助",
+            "capabilities": ["coding", "debug", "script", "programming", "system", "devops"],
         },
         "xiaolian": {
             "display_name": "小涟", "display_name_en": "Xiaolian",
@@ -586,7 +587,7 @@ class AgentRegistry:
             # 下次读取返回空 → 前端 personality.value="" → 再次保存又写空 → 循环。
             # 改为非空才写入，杜绝误清空。
             if personality_text is not None and personality_text.strip():
-                from config import reverse_agent_name_replacements, WORKSPACE_DIR
+                from config import WORKSPACE_DIR, reverse_agent_name_replacements
                 personality_text = reverse_agent_name_replacements(personality_text)
                 soul_path = WORKSPACE_DIR / "SOUL.md"
                 soul_path.write_text(personality_text, encoding="utf-8-sig")

@@ -21,14 +21,13 @@
 
 | 项目 | 最低要求 | 推荐配置 |
 |------|---------|--------|
-| CPU | ARMv8 双核 | ARMv8 八核（如全志 T507 big.LITTLE） |
+| CPU | x86-64 双核 | x86-64 四核或更高 |
 | 内存 | 2 GB | 4 GB+ |
-| 存储 | 8 GB SD 卡 | 32 GB+ SD 卡 + USB 外挂存储 |
-| 摄像头 | 无 | USB 摄像头（用于视觉功能） |
+| 存储 | 8 GB | 32 GB+ SSD |
 
 ### 软件要求
 
-- **操作系统**: Debian 12 (bookworm) 或 Ubuntu 22.04+ ARM64
+- **操作系统**: Windows 10+、Debian 12 或 Ubuntu 22.04+
 - **Python**: 3.10 或更高版本
 - **网络**: 需要访问 `api.xiaomimimo.com`（MiMo API）
 
@@ -76,12 +75,8 @@ pip install -r requirements.txt
 | QQ Bot | qq-botpy |
 | 搜索 | primp, lxml, tavily-python |
 | 文档 | pdfplumber, python-docx, python-pptx, openpyxl, html2text |
-| 视觉 | numpy, opencv-python-headless |
 | 向量 | sqlite-vec |
-| 硬件 | smbus2 |
 | Web UI | streamlit |
-
-> 如果在 ARM 平台上安装 `opencv-python-headless` 遇到问题，可尝试 `pip install opencv-python-headless --no-binary :all:` 或从源码编译。
 
 ### 2.3 配置环境变量
 
@@ -259,7 +254,6 @@ streamlit run web/app.py
 | 🌐 人家去网上看看～ | 正在浏览网页 |
 | 💻 人家在跑命令～ | 正在执行 Shell 命令 |
 | 🐍 人家在算东西～ | 正在执行 Python 代码 |
-| 📷 人家看看摄像头～ | 正在拍照/分析 |
 
 ---
 
@@ -404,7 +398,7 @@ sudo systemctl status qq-agent
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| KIOXIA_DATA_DIR | `/media/orangepi/KIOXIA/xiaoda-data` | 外挂存储数据目录 |
+| KIOXIA_DATA_DIR | `./data` | 数据目录 |
 
 > 如果外挂存储不可用，系统会自动回退到项目目录下的 `data/` 子目录。
 
@@ -440,14 +434,6 @@ sudo systemctl status qq-agent
 **原因**：向量嵌入模型未配置。
 
 **解决**：配置 `EMBED_API_KEY`、`EMBED_BASE_URL` 和 `EMBED_MODEL`。不配置时记忆系统仍可工作，但无法进行语义检索。
-
-### Q: 摄像头功能不可用
-
-**原因**：未连接 USB 摄像头，或 `opencv-python-headless` 未安装。
-
-**解决**：
-1. 确认 USB 摄像头已连接：`ls /dev/video*`
-2. 安装依赖：`pip install opencv-python-headless`
 
 ### Q: 如何修改已配置的 API 密钥？
 

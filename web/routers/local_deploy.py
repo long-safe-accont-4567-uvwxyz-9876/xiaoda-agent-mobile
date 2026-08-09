@@ -1,28 +1,28 @@
 """本地部署路由：向量嵌入引擎管理（API / 本地模型切换、启动/停止、日志）。
 
 WebUI 侧边栏"本地部署"页：选择向量嵌入引擎——远程 API（硅基流动）
-或内置本地 BGE 模型（NPU/CPU）。使用本地模型前必须先"启动"，
+或内置本地 BGE CPU 模型。使用本地模型前必须先"启动"，
 页面下方展示启动/运行日志。
 """
 from __future__ import annotations
+
+import asyncio
+import os
 import platform
 import re
 import time
 from typing import Any
 
-import asyncio
-import os
-
 from fastapi import APIRouter, Depends, HTTPException, Request
 from loguru import logger
 
-from web.schemas import Envelope
-from web.routers.auth import get_current_user
 from web.config_service import get_config_service
+from web.routers.auth import get_current_user
+from web.schemas import Envelope
 
 router = APIRouter(tags=["local-deploy"], dependencies=[Depends(get_current_user)])
 
-# 设备探测缓存：5 分钟有效，避免每次刷新页面都 spawn runner 探测 NPU
+# 设备探测缓存：5 分钟有效
 _DEVICE_CACHE: dict[str, Any] = {"ts": 0.0, "data": None}
 _DEVICE_CACHE_TTL = 300.0
 
@@ -103,18 +103,6 @@ def _cpu_stats() -> dict:
     return stats
 
 
-def _npu_stats(vs: Any) -> dict:
-    """NPU 实时状态（常驻流 / 占用 / 最近推理耗时），从向量库 provider 读取。"""
-    d = {"resident": False, "busy": False, "last_call_ms": None, "calls": 0}
-    try:
-        prov = getattr(vs, "_local_provider", None)
-        if prov is not None and hasattr(prov, "npu_stats"):
-            d.update(prov.npu_stats())
-    except Exception as e:  # noqa: BLE001
-        logger.warning("local_deploy.npu_stats_failed error={}", str(e))
-    return d
-
-
 def _detect_cpu_model() -> str:
     """读取 CPU 型号：Linux 依次尝试 model name / Hardware / 设备树 / Processor；
     Windows 用 PowerShell CIM 拿型号（如 "12th Gen Intel(R) Core(TM) i7-12700H"）。"""
@@ -128,16 +116,6 @@ def _detect_cpu_model() -> str:
                     val = m.group(1).strip()
                     if val and val.lower() != "unknown":
                         return val
-            # aarch64 无 model name 时读设备树型号（如 "Orange Pi 4 Pro"）
-            dt_model = "/proc/device-tree/model"
-            if os.path.exists(dt_model):
-                try:
-                    with open(dt_model, "r", encoding="utf-8", errors="ignore") as f:
-                        val = f.read().rstrip("\x00").strip()
-                    if val:
-                        return val
-                except OSError:
-                    pass
         except OSError:
             pass
     if platform.system() == "Windows":
@@ -206,35 +184,15 @@ def _detect_devices() -> dict:
     """探测本机算力设备（带 5 分钟缓存）。
 
     返回：
-        current: 当前持久化的设备（"" = 跟随 LOCAL_EMBED_BACKEND / auto）
-        devices: [{id, name, model, desc, available, active}] —— CPU 恒可用；
-                 NPU 由 probe_npu 实测；GPU 恒置灰（"此模型暂不支持"）。
+        current: 当前本地推理设备
+        devices: CPU 恒可用，PC GPU 保留探测展示。
     """
     now = time.monotonic()
     if _DEVICE_CACHE["data"] is not None and (now - _DEVICE_CACHE["ts"]) < _DEVICE_CACHE_TTL:
         return _DEVICE_CACHE["data"]
 
-    # NPU 实测（probe_npu 会 sudo -n 拉起 runner --probe，约 50ms~15s）
-    npu_ok = False
-    npu_model = ""
-    try:
-        from memory.npu_embed import probe_npu
-        npu_ok = probe_npu()
-        if npu_ok:
-            npu_model = "Vivante VIP9000 (3 TOPS INT8)"
-    except Exception as e:  # noqa: BLE001
-        logger.warning("local_deploy.device_npu_probe_failed error={}", str(e))
-        npu_ok = False
-
     cpu_model = _detect_cpu_model()
     gpu_model = _detect_gpu_model()
-
-    # 当前持久化的设备（webui_overrides.json local_deploy.device）
-    current = ""
-    try:
-        current = str(get_config_service().get("local_deploy.device", "") or "")
-    except Exception:  # noqa: BLE001
-        current = ""
 
     devices = [
         {
@@ -245,14 +203,6 @@ def _detect_devices() -> dict:
             "available": True,
         },
         {
-            "id": "npu",
-            "name": "NPU",
-            "model": npu_model or "未检测到 VIP9000",
-            "desc": "NPU 常驻流加速，短文本 CPU / 长文本 NPU 自适应" if npu_ok
-                    else "未检测到可用 NPU（需 Linux + VIP9000 驱动 + sudo 免密）",
-            "available": npu_ok,
-        },
-        {
             "id": "gpu",
             "name": "GPU",
             "model": gpu_model or "未检测到独立显卡",
@@ -260,7 +210,7 @@ def _detect_devices() -> dict:
             "available": False,
         },
     ]
-    data = {"current": current, "devices": devices}
+    data = {"current": "cpu", "devices": devices}
     _DEVICE_CACHE.update(ts=now, data=data)
     return data
 
@@ -276,7 +226,7 @@ def _fallback_status() -> dict:
     return {
         "mode": os.getenv("EMBED_MODE", "local"),
         "engine_running": False,
-        "backend": os.getenv("LOCAL_EMBED_BACKEND", "auto"),
+        "backend": "cpu",
         "api_configured": bool(
             os.getenv("SILICONFLOW_API_KEY") or os.getenv("EMBED_API_KEY")),
         "model_dir": "",
@@ -287,39 +237,16 @@ def _fallback_status() -> dict:
 
 @router.get("/local-deploy/devices", response_model=Envelope[dict])
 async def local_deploy_devices(request: Request) -> Any:
-    """算力设备检测：CPU / NPU / GPU 探测结果 + 当前持久化设备 + 实时占用。"""
+    """算力设备检测：CPU 与 PC GPU 探测结果。"""
     data = _detect_devices()
-    data["runtime_backend"] = os.getenv("LOCAL_EMBED_BACKEND", "auto")
-    vs = _get_vector_store(request)
+    data["runtime_backend"] = "cpu"
     # 附加实时性能/占用数据（不做 5 分钟缓存，保持页面 5s 轮询下的新鲜度）
     for dev in data.get("devices", []):
         if dev["id"] == "cpu":
             dev["stats"] = _cpu_stats()
-        elif dev["id"] == "npu":
-            dev["stats"] = _npu_stats(vs)
         else:
             dev["stats"] = {"status": "unavailable"}
     return Envelope(data=data)
-
-
-@router.post("/local-deploy/device", response_model=Envelope[dict])
-async def local_deploy_set_device(request: Request, body: dict) -> Any:
-    """持久化算力设备选择（cpu / npu）。切换后需重启服务生效。
-
-    校验：npu 必须实测可用（probe_npu），gpu 恒不可选（模型不支持）。
-    """
-    device = str((body or {}).get("device", "")).strip().lower()
-    if device not in ("cpu", "npu"):
-        raise HTTPException(status_code=422, detail="device must be 'cpu' or 'npu'")
-    if device == "npu":
-        from memory.npu_embed import probe_npu
-        if not probe_npu():
-            raise HTTPException(status_code=409, detail="未检测到可用 NPU 设备")
-    get_config_service().set("local_deploy.device", device)
-    # 清空探测缓存，下次查询立即反映新选择
-    _DEVICE_CACHE["data"] = None
-    logger.info("local_deploy.device_set device={} (restart required)", device)
-    return Envelope(data={"device": device, "need_restart": True})
 
 
 @router.get("/local-deploy/status", response_model=Envelope[dict])
@@ -351,7 +278,7 @@ async def local_deploy_set_mode(request: Request, body: dict) -> Any:
 
 @router.post("/local-deploy/start", response_model=Envelope[dict])
 async def local_deploy_start(request: Request) -> Any:
-    """启动本地 embedding 引擎：预加载模型（含 NPU 探测），必须先启动再使用。"""
+    """启动本地 embedding 引擎：预加载 CPU 模型，必须先启动再使用。"""
     vs = _get_vector_store(request)
     if vs is None:
         raise HTTPException(status_code=409, detail="Vector store not initialized")
@@ -362,7 +289,7 @@ async def local_deploy_start(request: Request) -> Any:
 
 @router.post("/local-deploy/stop", response_model=Envelope[dict])
 async def local_deploy_stop(request: Request) -> Any:
-    """停止本地 embedding 引擎：释放 onnxruntime session / NPU 常驻进程。"""
+    """停止本地 embedding 引擎：释放 onnxruntime session。"""
     vs = _get_vector_store(request)
     if vs is None:
         raise HTTPException(status_code=409, detail="Vector store not initialized")
@@ -375,7 +302,7 @@ async def local_deploy_logs(request: Request, limit: int = 60, topic: str = "dep
     """返回本地部署相关日志（agent.log 尾部，按 topic 过滤）。
 
     topic=deploy  向量嵌入引擎：启动/停止/模式切换/后端选择
-    topic=device  算力设备：NPU 探测 / 设备持久化 / 启动应用 / 自适应降级
+    topic=device  算力设备探测
     """
     from config import LOG_DIR
     log_file = LOG_DIR / "agent.log"
@@ -388,10 +315,9 @@ async def local_deploy_logs(request: Request, limit: int = 60, topic: str = "dep
         except OSError:
             tail = []
     if topic == "device":
-        keywords = ("npu_probe", "npu_embed", "adaptive_embed",
-                    "local_deploy.device", "bootstrap.local_deploy")
+        keywords = ("local_deploy", "device")
     else:
-        keywords = ("embed", "npu", "vector_store.local", "adaptive", "local_deploy")
+        keywords = ("embed", "vector_store.local", "local_deploy")
     lines = [ln.rstrip("\n") for ln in tail
              if any(k in ln.lower() for k in keywords)][-n:]
     return Envelope(data=lines)

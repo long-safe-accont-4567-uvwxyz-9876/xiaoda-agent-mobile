@@ -12,8 +12,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from tool_engine.tool_registry import ToolPermission
 from config import get_agent_display_name
+from tool_engine.tool_registry import ToolPermission
 
 _NAHIDA_DN = get_agent_display_name('xiaoda')
 _KELI_DN = get_agent_display_name('xiaoli')
@@ -261,43 +261,6 @@ BUILTIN_TOOLS: list[dict[str, Any]] = [
         "max_frequency": 5,
         "module_path": "tools.multi_search_tools",
         "func_name": "wolfram_query",
-    },
-    # ── tools.vision_tools ───────────────────────────────────────────
-    {
-        "name": "camera_capture",
-        "description": "从USB摄像头拍照。device为设备编号(默认0)，save为True时保存图片到工作目录",
-        "schema": {
-            "type": "object",
-            "properties": {
-                "device": {"type": "integer", "description": "摄像头设备编号", "default": 0},
-                "width": {"type": "integer", "description": "画面宽度", "default": 640},
-                "height": {"type": "integer", "description": "画面高度", "default": 480},
-                "save": {"type": "boolean", "description": "是否保存图片到工作目录", "default": False},
-            },
-            "required": [],
-        },
-        "permission": ToolPermission.EXECUTE,
-        "category": "vision",
-        "max_frequency": 5,
-        "module_path": "tools.vision_tools",
-        "func_name": "camera_capture",
-    },
-    {
-        "name": "vision_analyze",
-        "description": "分析摄像头画面。action: detect(目标检测), describe(场景描述), colors(颜色分析)",
-        "schema": {
-            "type": "object",
-            "properties": {
-                "action": {"type": "string", "enum": ["detect", "describe", "colors"], "description": "分析动作: detect(目标检测), describe(场景描述), colors(颜色分析)"},
-                "device": {"type": "integer", "description": "摄像头设备编号", "default": 0},
-            },
-            "required": ["action"],
-        },
-        "permission": ToolPermission.EXECUTE,
-        "category": "vision",
-        "max_frequency": 3,
-        "module_path": "tools.vision_tools",
-        "func_name": "vision_analyze",
     },
     # ── tools.system_tools ───────────────────────────────────────────
     {

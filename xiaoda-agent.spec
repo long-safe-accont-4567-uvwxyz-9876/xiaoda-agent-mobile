@@ -76,8 +76,7 @@ for _vfile in ('.version', '.auto_update'):
 # assets/ directory (icons and other resources)
 datas += _tree_datas(os.path.join(SPECPATH, 'assets'), 'assets')
 
-# models/bge-small-zh-v1.5/ (本地向量模型：onnx + tokenizer.json，
-# Windows 安装包内置、默认 CPU 推理；有 VIP9000 的 Linux 板端走 NPU 常驻流)
+# models/bge-small-zh-v1.5/ (本地向量模型：onnx + tokenizer.json，默认 CPU 推理)
 datas += _tree_datas(os.path.join(SPECPATH, 'models', 'bge-small-zh-v1.5'),
                      os.path.join('models', 'bge-small-zh-v1.5'))
 
@@ -290,7 +289,6 @@ hiddenimports = [
     'utils.logging_config',
     'utils.metrics',
     'utils.xiaoda_acp',
-    'utils.npu_inference',
     'utils.prompt_caching',
     'utils.result_wrapper',
     'utils.smart_error_handler',

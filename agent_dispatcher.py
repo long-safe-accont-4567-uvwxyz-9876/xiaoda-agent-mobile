@@ -1,22 +1,23 @@
-import json
 import asyncio
+import json
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
-from openai import AsyncOpenAI
 
 from loguru import logger
-from tool_engine.tool_registry import to_openai_tools
-from tool_engine.tool_executor import ToolExecutor, ToolResult
-from tool_engine.tool_repair import ToolCallRepair
-from utils.text_utils import has_dsml_tool_calls, parse_dsml_tool_calls, strip_dsml, strip_reasoning, humanize
-from utils.llm_cleanup import deduplicate_multi_reply
-from emotion.tts_engine import TTSEngine
-from emotion.emoji_config import get_status_msg
-from tool_engine.tool_guardrails import get_tool_guardrails
-from utils.credential_pool import CredentialPool
-from core.message import AgentMessage
+from openai import AsyncOpenAI
+
 from config import get_agent_display_name
+from core.message import AgentMessage
+from emotion.emoji_config import get_status_msg
+from emotion.tts_engine import TTSEngine
+from tool_engine.tool_executor import ToolExecutor, ToolResult
+from tool_engine.tool_guardrails import get_tool_guardrails
+from tool_engine.tool_registry import to_openai_tools
+from tool_engine.tool_repair import ToolCallRepair
+from utils.credential_pool import CredentialPool
+from utils.llm_cleanup import deduplicate_multi_reply
+from utils.text_utils import has_dsml_tool_calls, humanize, parse_dsml_tool_calls, strip_dsml, strip_reasoning
 
 # J-Space Hook: 干预闭环
 try:
@@ -1043,7 +1044,6 @@ class AgentDispatcher:
             - "test" → 小狼（xiaolang）
             - "info_search" → 小涟（xiaolian，信息助手）
             - "memory" → 小妲（xiaoda，记忆检索）
-            - "hardware" → 小狼（xiaolang）
             - "emotional" → 小莉（xiaoli，萌系陪伴）
             - "research" → 小可（xiaoke，学术研究）
             - "general" → 默认（xiaoli）
@@ -1112,7 +1112,6 @@ class AgentDispatcher:
             "security": "xiaolang",
             "test": "xiaoke",
             "info_search": "xiaolian",
-            "hardware": "xiaolang",
             "emotional": "xiaoli",
             "general": "xiaoli",
         }
@@ -1136,7 +1135,7 @@ class AgentDispatcher:
         返回默认（xiaoda，表示无明确路由信号）时，才回退到本地关键词分类。
 
         :param user_input: 用户输入文本
-        :returns: 任务类型（frontend/backend/debug/security/test/info_search/hardware/emotional/general）
+        :returns: 任务类型（frontend/backend/debug/security/test/info_search/emotional/general）
         """
         # 委托给 RouterEngine（权威路由源）：明确子代理路由时反推 task_type
         # 注意：xiaoda 作为默认兜底路由时不应反推为 memory，仅当 RouterEngine
@@ -1165,7 +1164,6 @@ class AgentDispatcher:
             (["测试", "test", "pytest", "单测", "覆盖率"], "test"),
             (["搜索", "查询", "查找", "search", "browse", "网页"], "info_search"),
             (["回忆", "记得", "记忆", "recall", "remember", "记得吗", "上次", "昨天", "前几天", "上周", "上周"], "memory"),
-            (["硬件", "gpio", "i2c", "传感器", "摄像头", "hardware"], "hardware"),
             (["难过", "开心", "生气", "焦虑", "陪伴", "聊天", "求安慰"], "emotional"),
         ]
 
@@ -1191,7 +1189,6 @@ class AgentDispatcher:
             (["测试", "test", "pytest", "单测", "覆盖率"], "test"),
             (["搜索", "查询", "查找", "search", "browse", "网页"], "info_search"),
             (["回忆", "记得", "记忆", "recall", "remember", "记得吗", "上次", "昨天", "前几天", "上周"], "memory"),
-            (["硬件", "gpio", "i2c", "传感器", "摄像头", "hardware"], "hardware"),
             (["难过", "开心", "生气", "焦虑", "陪伴", "聊天", "求安慰"], "emotional"),
         ]
         found: set[str] = set()

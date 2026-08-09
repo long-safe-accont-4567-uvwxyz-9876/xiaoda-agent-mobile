@@ -6,7 +6,6 @@
     "security": {"target": "xiaolang", "mode": "single"},
     "test": {"target": "xiaolang", "mode": "single"},
     "info_search": {"target": "xiaolian", "mode": "single"},
-    "hardware": {"target": "xiaolang", "mode": "single"},
     "emotional": {"target": "xiaoli", "mode": "single"},
     "memory": {"target": "xiaoda", "mode": "single"},
     "general": {"target": "xiaoli", "mode": "single"}
@@ -40,11 +39,6 @@
     "info_search+security": {
       "targets": ["xiaolian", "xiaolang"],
       "mode": "pipe",
-      "synthesizer": ""
-    },
-    "hardware+security": {
-      "targets": ["xiaolang"],
-      "mode": "single",
       "synthesizer": ""
     },
     "emotional+general": {

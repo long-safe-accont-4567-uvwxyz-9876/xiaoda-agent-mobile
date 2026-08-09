@@ -1,9 +1,10 @@
-from dataclasses import dataclass
-from typing import Any
-from enum import Enum
 import threading
+from dataclasses import dataclass
+from enum import Enum
+from typing import Any
 
 from loguru import logger
+
 from utils.metrics import metrics
 
 
@@ -85,7 +86,6 @@ _CATEGORY_PRIORITY: dict[str, int] = {
     "document": 50,
     "web": 40,
     "system": 30,
-    "hardware": 25,
     "mcp": 20,
     "general": 10,
 }

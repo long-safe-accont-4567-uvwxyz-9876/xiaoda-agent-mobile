@@ -218,7 +218,6 @@ sudo systemctl status qq-agent
 | 数学/科学计算 | `WOLFRAMALPHA_API_KEY` | 可选 |
 | 图片上传 | `IMGBB_API_KEY` | 可选 |
 | GitHub 操作 | `GITHUB_PERSONAL_ACCESS_TOKEN` | 可选 |
-| 硬件控制（GPIO/I2C） | 无需 API Key | 需 ARM 设备 |
 
 ---
 
@@ -254,23 +253,6 @@ npm install
 npm run dev    # 开发服务器（热更新）
 npm run build  # 构建到 web/dist/
 ```
-
----
-
-## 硬件支持（可选）
-
-在 ARM 设备（如 Orange Pi 5 Pro）上，支持以下硬件交互：
-
-| 功能 | 工具 | 要求 |
-|------|------|------|
-| GPIO 控制 | `gpio_control` | 映射 `/sys/class/gpio` |
-| PWM 输出 | `pwm_control` | 映射 `/sys/class/pwm` |
-| I2C 通信 | `hardware_status` | 映射 `/dev/i2c-*` |
-| 摄像头 | `capture_photo` | 映射 `/dev/video0` |
-| 温度/电压监控 | `hardware_status` | 自动检测 |
-| NPU 视觉识别 | YOLOv5 | RK3588/RK3588S + `ENABLE_NPU=true` |
-
-Docker 部署时需在 `docker-compose.yml` 中取消 `devices` 注释并映射对应设备节点。
 
 ---
 

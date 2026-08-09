@@ -5,7 +5,6 @@
 """
 from unittest.mock import MagicMock
 
-
 from agent_dispatcher import AgentDispatcher
 
 
@@ -46,13 +45,6 @@ def test_route_emotional_to_xiaoli():
     assert target == "xiaoli"
 
 
-def test_route_hardware_to_xiaolang():
-    """硬件任务应路由到 xiaolang（系统管理）。"""
-    dispatcher = _make_dispatcher(_ALL_AVAILABLE)
-    target = dispatcher.route_task("hardware", "GPIO 引脚怎么配置")
-    assert target == "xiaolang"
-
-
 def test_classify_task_keywords():
     """关键词分类应正确识别各种任务类型。"""
     dispatcher = _make_dispatcher(_ALL_AVAILABLE)
@@ -64,7 +56,6 @@ def test_classify_task_keywords():
         ("检查系统安全漏洞", "security"),
         ("运行 pytest 单测", "test"),
         ("搜索一下天气", "info_search"),
-        ("GPIO 传感器读取", "hardware"),
         ("今天好难过求陪伴", "emotional"),
         ("回忆昨天发生了什么", "memory"),
     ]
@@ -72,6 +63,14 @@ def test_classify_task_keywords():
     for user_input, expected in cases:
         result = dispatcher.classify_task(user_input)
         assert result == expected, f"classify_task({user_input!r}) = {result!r}, expected {expected!r}"
+
+
+def test_retired_edge_hardware_terms_have_no_dedicated_classification():
+    dispatcher = _make_dispatcher(_ALL_AVAILABLE)
+
+    for user_input in ["GPIO 引脚", "I2C 传感器", "SPI 通信", "UART 串口", "PWM 舵机", "Orange Pi 摄像头"]:
+        assert dispatcher.classify_task(user_input) != "hardware"
+        assert "hardware" not in dispatcher.classify_multi(user_input)
 
 
 def test_route_fallback_when_unavailable():
@@ -97,7 +96,7 @@ def test_routing_config_load():
     assert config["security"] == "xiaolang"
     assert config["test"] == "xiaolang"
     assert config["info_search"] == "xiaolian"
-    assert config["hardware"] == "xiaolang"
+    assert "hardware" not in config
     assert config["emotional"] == "xiaoli"
     assert config["general"] == "xiaoli"
 

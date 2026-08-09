@@ -1,17 +1,17 @@
-from typing import Any
-from collections.abc import AsyncIterator
 import asyncio
 import hashlib
 import os
 import sys
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
-
-from core.app_exception import LLMError
+from typing import Any
 
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
+
+from core.app_exception import LLMError
 
 # Ensure project root is in path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -20,10 +20,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 async def _apply_model_overrides(core: Any) -> None:
     """重启后恢复：自定义 provider 注册 + 路由表覆盖。"""
     import os
+
+    from model_router import ROUTE_TABLE
     from web.config_service import get_config_service
     from web.custom_providers import register_into_router
     from web.routers.models import load_provider_key
-    from model_router import ROUTE_TABLE
 
     logger.info("webui._apply_model_overrides_start")
     cfg = get_config_service()
@@ -96,7 +97,7 @@ def _register_env_providers(cfg: Any, env_values: Any, os_module: Any) -> None:
 def _ensure_provider_key_file(pid: Any, api_key: Any, os_module: Any) -> None:
     """确保证书文件存在且内容正确（base64 编码存储，非明文）。"""
     from config import get_credentials_dir
-    from web._provider_keys import _encode_key, _decode_key
+    from web._provider_keys import _decode_key, _encode_key
     cred_dir = get_credentials_dir()
     cred_dir.mkdir(parents=True, exist_ok=True)
     fp = cred_dir / f"provider_{pid}.key"
@@ -137,7 +138,7 @@ def _register_all_providers(cfg: Any, core: Any, load_provider_key: Any, registe
             try:
                 register_into_router(core.router, pid, p.get("format", "openai"),
                                      p.get("base_url", ""), key)
-                from utils.credential_pool import get_credential_pool, Credential
+                from utils.credential_pool import Credential, get_credential_pool
                 pool = get_credential_pool()
                 if pid not in pool._pool:
                     pool.add_credential(Credential(
@@ -254,7 +255,7 @@ def _restore_chat_model(cfg: Any, core: Any) -> None:
         return
     provider = chat_model["provider"]
     model_id = chat_model["model_id"]
-    from model_router import ModelRouteRegistry, ROUTE_TABLE
+    from model_router import ROUTE_TABLE, ModelRouteRegistry
     # 测试场景 core.router 可能是 MagicMock，用临时 registry；生产用真实实例
     registry = getattr(core.router, '_registry', None)
     if not isinstance(registry, ModelRouteRegistry):
@@ -288,8 +289,8 @@ def _restore_chat_model(cfg: Any, core: Any) -> None:
             provider, model_id, str(e)
         )
         try:
-            from config import get_default_model_for_provider
             import config as _config_mod
+            from config import get_default_model_for_provider
             fallback_provider = _config_mod.DEFAULT_PROVIDER or "mimo"
             fallback_model = get_default_model_for_provider(fallback_provider)
             if not fallback_model:
@@ -331,8 +332,8 @@ def _restore_chat_model(cfg: Any, core: Any) -> None:
 
 async def _start_user_mcp_servers(core: Any) -> None:
     """启动 WebUI 管理的 MCP server。"""
-    from web.config_service import get_config_service
     from tool_engine.mcp_client import MCPClient
+    from web.config_service import get_config_service
     cfg = get_config_service()
     for name, rec in (cfg.get("mcp", {}) or {}).items():
         if not isinstance(rec, dict) or not rec.get("enabled", True):
@@ -416,8 +417,8 @@ async def _init_mail_poller(core: Any, config_service: Any) -> tuple[str, Any]:
 async def _start_services(app: Any, core: Any) -> None:
     """启动正常模式下的所有服务组件（PluginManager、MediaTaskQueue、GreetingScheduler、QQ Bot）。"""
     from web.config_service import get_config_service
-    from web.media_tasks import MediaTaskQueue
     from web.greeting_scheduler import GreetingScheduler
+    from web.media_tasks import MediaTaskQueue
     from web.routers.tools import apply_tool_overrides
     from web.ws_hub import manager, start_media_cleanup
 
@@ -583,7 +584,7 @@ async def _ensure_wechat_bot_task(app: FastAPI) -> None:
     用户可在设置页重新扫码登录。
     """
     try:
-        from wechat_bot_adapter import WeChatBotAdapter, CREDENTIALS_PATH
+        from wechat_bot_adapter import CREDENTIALS_PATH, WeChatBotAdapter
         if not CREDENTIALS_PATH.exists():
             return
         core = app.state.core
@@ -654,6 +655,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[Any]:
         # keepalive_expiry=300s 保持连接热，正常对话间隔内不过期。
         async def _prewarm_connections() -> None:
             import os as _os
+
             import httpx as _httpx
             # 预热 agnes
             try:
@@ -708,12 +710,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[Any]:
                         logger.info("constraint.prewarm_done")
                     except Exception as _e:
                         logger.debug("constraint.prewarm_failed: {}", _e)
-                # 治本修复（2026-08-08）：预热本地 NPU/CPU embedding provider。
+                # 预热本地 CPU embedding provider。
                 # 根因：embed.prewarm_done 只预热了远程 siliconflow 的 HTTP 连接，
-                #   本地模式（AdaptiveEmbeddingProvider）从未 load()。首条消息
+                #   本地 provider 从未 load()。首条消息
                 #   QueryCache.get → vec.embed → encode_batch 首次触发 load()：
-                #   tokenizer + onnxruntime session + probe_npu + NPU 常驻进程
-                #   ≈ 6s（U 盘读模型 + ARM 初始化）→ 检索 8s 硬超时 →
+                #   tokenizer + onnxruntime session 初始化耗时可能导致检索超时，
                 #   全链路 31.7s 阻塞（日志铁证 16:23:03→09 空白）。
                 #   启动时后台预热，首条消息 embed <10ms。
                 async def _warm_local_embed():
@@ -735,7 +736,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[Any]:
             # 同类副作用修复：用 _spawn 跟踪，避免任务被 GC 回收导致预热丢失
             _spawn(_prewarm_local_singletons())
 
-        import asyncio as _asyncio
         from core.background_tasks import _spawn
         _spawn(_prewarm_connections())
 
@@ -842,8 +842,8 @@ def _has_any_provider_credential() -> bool:
     # 3. 自定义 provider：复用 config_service 已加载的 providers 配置 +
     #    load_provider_key 读取凭证文件，不新写 JSON 解析
     try:
-        from web.config_service import get_config_service
         from web._provider_keys import load_provider_key
+        from web.config_service import get_config_service
         cfg = get_config_service()
         for pid in (cfg.get("models.providers", {}) or {}):
             if pid == "ollama":
@@ -948,6 +948,7 @@ def create_app() -> FastAPI:
     @app.middleware("http")
     async def _allow_frame_embed(request: Any, call_next: Any) -> Any:
         import time as _time
+
         from utils.trace_context import new_trace_id
         _trace_id = new_trace_id()
         _start = _time.monotonic()
@@ -983,26 +984,28 @@ def create_app() -> FastAPI:
     from web.error_handler import register_error_handlers
     register_error_handlers(app)
 
+    from web.routers.agents import router as agents_router
     from web.routers.auth import router as auth_router
     from web.routers.chat import router as chat_router
-    from web.routers.system import router as system_router, public_router as system_public_router
-    from web.routers.agents import router as agents_router
-    from web.routers.models import router as models_router
-    from web.routers.tools import router as tools_router
-    from web.routers.mcp import router as mcp_router
-    from web.routers.insight import router as insight_router
-    from web.routers.schedule import router as schedule_router
-    from web.routers.media import router as media_router
     from web.routers.health import router as health_router
-    from web.routers.plugins import router as plugins_router
-    from web.routers.setup import router as setup_router
-    from web.routers.model_discovery import router as model_discovery_router
-    from web.routers.market import router as market_router
+    from web.routers.insight import router as insight_router
+    from web.routers.local_deploy import router as local_deploy_router
     from web.routers.mail_manage import router as mail_manage_router
+    from web.routers.market import router as market_router
+    from web.routers.mcp import router as mcp_router
+    from web.routers.media import router as media_router
+    from web.routers.model_discovery import router as model_discovery_router
+    from web.routers.models import router as models_router
+    from web.routers.plugins import router as plugins_router
+    from web.routers.schedule import router as schedule_router
+    from web.routers.setup import router as setup_router
+    from web.routers.system import public_router as system_public_router
+    from web.routers.system import router as system_router
+    from web.routers.tools import router as tools_router
+    from web.routers.wechat import public_router as wechat_public_router
+    from web.routers.wechat import router as wechat_router
     from web.routers.workflows import router as workflows_router
     from web.routers.workspace import router as workspace_router
-    from web.routers.wechat import router as wechat_router, public_router as wechat_public_router
-    from web.routers.local_deploy import router as local_deploy_router
 
     for r in (auth_router, chat_router, system_router, agents_router,
               models_router, tools_router, mcp_router, insight_router,

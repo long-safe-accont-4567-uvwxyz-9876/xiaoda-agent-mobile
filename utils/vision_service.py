@@ -1,14 +1,13 @@
-import os
-import sys
-import time
 import logging
+import os
 import subprocess
-import numpy as np
-from pathlib import Path
+import sys
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
-from loguru import logger as _loguru_logger
 
+import numpy as np
+from loguru import logger as _loguru_logger
 
 logger = logging.getLogger("vision_service")
 
@@ -160,14 +159,6 @@ def _detect_discrete_gpu_index() -> int:
 
 # 模型目录（只读资源，可从 _MEIPASS 加载）
 MODELS_DIR = Path(__file__).parent / "models"
-# 捕获目录（可写，使用用户数据目录避免 _MEIPASS 只读）
-try:
-    from config import MEDIA_DIR
-    CAPTURES_DIR = MEDIA_DIR / "captures"
-    CAPTURES_DIR.mkdir(parents=True, exist_ok=True)
-except ImportError:
-    CAPTURES_DIR = Path(__file__).parent / "captures"
-
 COCO_LABELS = [
     "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat",
     "traffic light", "fire hydrant", "stop sign", "parking meter", "bench", "bird", "cat",
@@ -233,15 +224,13 @@ def _hsv_to_color_name(h: int, s: int, v: int) -> str:
 
 
 class VisionService:
-    """视觉服务，封装摄像头捕获、目标检测和颜色分析功能。"""
+    """视觉服务，封装本地图像目标检测和颜色分析功能。"""
 
     def __init__(self) -> None:
         """初始化视觉服务。"""
         self.model = None
-        self._npu = None
         self.model_loaded = False
         self.backend = "none"
-        CAPTURES_DIR.mkdir(parents=True, exist_ok=True)
 
     def _check_memory(self) -> bool:
         """检查系统可用内存是否充足（>500MB）。"""
@@ -257,25 +246,9 @@ class VisionService:
             return False
 
     def _load_model(self) -> None:
-        """加载检测模型，按优先级尝试 NPU、NCNN 或回退到 API。"""
+        """加载 NCNN 检测模型，优先使用 PC Vulkan GPU。"""
         if self.model_loaded:
             return
-        if os.getenv("ENABLE_NPU", "").lower() in ("1", "true", "yes"):
-            try:
-                from .npu_inference import NPUInference
-                if NPUInference.is_available():
-                    model_path = str(MODELS_DIR / "yolov5.nb")
-                    if os.path.exists(model_path):
-                        self._npu = NPUInference(model_path=model_path)
-                        self.model_loaded = True
-                        self.backend = "npu"
-                        logger.info(f"vision.npu_loaded model={model_path}")
-                        return
-                    logger.warning(f"vision.npu_model_not_found path={model_path}")
-                else:
-                    logger.warning("vision.npu_not_available")
-            except Exception as e:
-                logger.warning(f"vision.npu_init_failed error={e}")
         try:
             import ncnn
         except ImportError:
@@ -338,38 +311,14 @@ class VisionService:
         if not self.model_loaded:
             self._load_model()
 
-    def capture_frame(self, device: Any=0, width: Any=640, height: Any=480) -> tuple:
-        """从摄像头捕获一帧图像。"""
+    def load_image(self, image_path: str | Path) -> Any | None:
+        """从本地文件加载待推理图像。"""
         try:
             import cv2
-            cap = cv2.VideoCapture(f"/dev/video{device}")
-            if not cap.isOpened():
-                return (False, f"cannot open /dev/video{device}")
-            cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
-            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
-            ret, frame = cap.read()
-            cap.release()
-            if not ret or frame is None:
-                return (False, "failed to read frame from camera")
-            return (True, frame)
-        except ImportError:
-            return (False, "opencv not available")
+            return cv2.imread(str(image_path))
         except Exception as e:
-            return (False, str(e))
-
-    def save_frame(self, frame: Any, filename: Any=None) -> str:
-        """将图像帧保存为 JPEG 文件，返回保存路径。"""
-        try:
-            import cv2
-            CAPTURES_DIR.mkdir(parents=True, exist_ok=True)
-            if filename is None:
-                filename = f"capture_{int(time.time())}.jpg"
-            filepath = str(CAPTURES_DIR / filename)
-            cv2.imwrite(filepath, frame)
-            return filepath
-        except Exception as e:
-            logger.warning("failed to save frame: %s", e)
-            return ""
+            logger.warning("failed to load image: %s", e)
+            return None
 
     def _nms(self, detections: list) -> list:
         """对检测结果执行非极大值抑制。"""
@@ -403,27 +352,6 @@ class VisionService:
     def detect_objects(self, frame: Any) -> list:
         """检测图像中的目标物体，返回 Detection 列表。"""
         self._ensure_model()
-        if self.backend == "npu" and self._npu:
-            try:
-                results = self._npu.detect(frame)
-                valid_results = []
-                for r in results:
-                    if isinstance(r, dict):
-                        if r.get("x2", 0) > r.get("x1", 0) and r.get("y2", 0) > r.get("y1", 0):
-                            valid_results.append(Detection(
-                                label=r["label"],
-                                confidence=r["confidence"],
-                                x1=r["x1"],
-                                y1=r["y1"],
-                                x2=r["x2"],
-                                y2=r["y2"],
-                            ))
-                    else:
-                        valid_results.append(r)
-                return valid_results
-            except Exception as e:
-                logger.warning(f"vision.npu_detect_failed error={e}")
-                return []
         if self.backend == "ncnn":
             return self._detect_ncnn(frame)
         return []
@@ -431,8 +359,8 @@ class VisionService:
     def _detect_ncnn(self, frame: Any) -> list:
         """使用 NCNN 模型执行目标检测。"""
         try:
-            import ncnn
             import cv2
+            import ncnn
 
             orig_h, orig_w = frame.shape[:2]
             img = cv2.resize(frame, (INPUT_SIZE, INPUT_SIZE))
@@ -532,8 +460,6 @@ class VisionService:
 
     def unload_model(self) -> None:
         """卸载已加载的检测模型，释放资源。"""
-        if self._npu:
-            self._npu = None
         self.model = None
         self.model_loaded = False
         self.backend = "none"

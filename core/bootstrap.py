@@ -12,14 +12,15 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
-from config import _ensure_workspace_template
-from config import DEFAULT_PROVIDER as _DEFAULT_PROVIDER, PRO_MODEL_NAME as _PRO_MODEL
-from config import MODEL_NAME as _MODEL_NAME, get_provider_config as _get_provider_config
-from config import get_agent_display_name
+from config import DEFAULT_PROVIDER as _DEFAULT_PROVIDER
+from config import MODEL_NAME as _MODEL_NAME
+from config import PRO_MODEL_NAME as _PRO_MODEL
+from config import _ensure_workspace_template, get_agent_display_name
+from config import get_provider_config as _get_provider_config
 from core.background_tasks import BackgroundTaskManager
 
 if TYPE_CHECKING:
@@ -168,6 +169,7 @@ class AgentCoreBootstrapper:
     def _ensure_voice_refs(self) -> None:
         """首次运行时将参考音频从安装包复制到用户数据目录"""
         import shutil
+
         from config import VOICE_REF_DIR
         bundled_dir = self._get_bundled_assets_dir() / "voice_refs"
         if not bundled_dir.exists():
@@ -197,6 +199,7 @@ class AgentCoreBootstrapper:
     def _ensure_stickers(self) -> None:
         """首次运行时将表情包从安装包复制到用户数据目录"""
         import shutil
+
         from config import STICKER_DIR, XIAOLI_STICKER_DIR
         bundled_dir = self._get_bundled_assets_dir() / "stickers"
         if not bundled_dir.exists():
@@ -275,6 +278,7 @@ class AgentCoreBootstrapper:
         embed_mode = os.getenv("EMBED_MODE", "local")
         try:
             import json as _json
+
             from config import get_config_dir
             _ov_path = Path(get_config_dir()) / "webui_overrides.json"
             if _ov_path.exists():
@@ -283,10 +287,6 @@ class AgentCoreBootstrapper:
                 if isinstance(_ld, dict) and _ld.get("mode") in ("local", "remote"):
                     embed_mode = _ld["mode"]
                     logger.info("bootstrap.local_deploy_mode_applied mode={}", embed_mode)
-                # 算力设备持久化：WebUI「本地部署 → 算力设备检测」选择后重启生效
-                if isinstance(_ld, dict) and _ld.get("device") in ("cpu", "npu"):
-                    os.environ["LOCAL_EMBED_BACKEND"] = _ld["device"]
-                    logger.info("bootstrap.local_deploy_device_applied device={}", _ld["device"])
         except Exception as e:  # noqa: BLE001
             logger.debug("bootstrap.local_deploy_mode_read_failed error={}", str(e))
         core._vec_store = None
@@ -326,12 +326,12 @@ class AgentCoreBootstrapper:
 
     async def _init_cognitive(self) -> None:
         """初始化认知系统：Reranker、QueryTransformer、Memory、KG、Instinct、ErrorPipeline。"""
-        from memory.memory_manager import MemoryManager
-        from memory.knowledge_graph import KnowledgeGraph
-        from memory.notebook_manager import NotebookManager
-        from memory.learning_manager import LearningManager
-        from emotion.portrait_manager import PortraitManager
         import config
+        from emotion.portrait_manager import PortraitManager
+        from memory.knowledge_graph import KnowledgeGraph
+        from memory.learning_manager import LearningManager
+        from memory.memory_manager import MemoryManager
+        from memory.notebook_manager import NotebookManager
 
         core = self.core
 
@@ -368,8 +368,8 @@ class AgentCoreBootstrapper:
         # KG v2 注入（功能开关开启时启用 v2 路径，失败降级到 v1）
         if getattr(config, 'KG_V2_ENABLED', False):
             try:
-                from memory.knowledge_graph_v2 import KnowledgeGraphV2
                 from memory.kg_search import KGSearchEngine
+                from memory.knowledge_graph_v2 import KnowledgeGraphV2
                 kg_v2 = KnowledgeGraphV2(
                     db_v2=core.db.kg_v2,
                     vector_store=core._vec_store,
@@ -596,8 +596,8 @@ class AgentCoreBootstrapper:
             excluded_tools={"call_xiaoli", "call_xiaoda", "delegate_task"},
             base_url=_resolved_base_url("xiaolang"),
             api_key_env=_resolved_api_key_env("xiaolang"),
-            capabilities=["coding", "debug", "script", "programming", "hardware", "system", "devops"],
-            route_description="编程、代码编写、调试、技术问题、硬件控制、系统运维、开发辅助",
+            capabilities=["coding", "debug", "script", "programming", "system", "devops"],
+            route_description="编程、代码编写、调试、技术问题、系统运维、开发辅助",
             # 默认关闭 git/github MCP：首次安装不再自动启用（需在 WebUI 权限矩阵按需开启）
             mcp_servers=[],
         )
@@ -647,7 +647,7 @@ class AgentCoreBootstrapper:
 
     def _register_delegate_tool(self) -> None:
         """注册通用 delegate_task 工具，描述动态嵌入各子代理的 route_description。"""
-        from tool_engine.tool_registry import register_tool_direct, ToolPermission
+        from tool_engine.tool_registry import ToolPermission, register_tool_direct
 
         core = self.core
         roster = "；".join(
@@ -717,7 +717,7 @@ class AgentCoreBootstrapper:
 
     def _register_sticker_tool(self) -> None:
         """注册 list_stickers 工具，让 LLM 可以查看可用表情包及描述，从而精准选择。"""
-        from tool_engine.tool_registry import register_tool_direct, ToolPermission
+        from tool_engine.tool_registry import ToolPermission, register_tool_direct
 
         core = self.core
 
@@ -758,9 +758,11 @@ class AgentCoreBootstrapper:
         )
 
     async def _build_task_graph(self) -> None:
-        from openai import AsyncOpenAI as _AOI
-        from task_orchestrator import build_task_graph
         import os as _os
+
+        from openai import AsyncOpenAI as _AOI
+
+        from task_orchestrator import build_task_graph
 
         core = self.core
         # 从 os.getenv() 实时读取，避免使用模块级冻结的空 API Key
@@ -780,8 +782,8 @@ class AgentCoreBootstrapper:
     # ── 交互层 ────────────────────────────────────────────
 
     async def _init_interaction(self) -> None:
-        from utils.smart_error_handler import get_error_handler
         from slash_commands import SlashCommandHandler
+        from utils.smart_error_handler import get_error_handler
 
         core = self.core
         core._error_handler = get_error_handler(
@@ -816,6 +818,7 @@ class AgentCoreBootstrapper:
 
     async def _init_mcp(self) -> None:
         import json as _json
+
         from config import MCP_SERVERS, WORKSPACE_DIR
 
         core = self.core

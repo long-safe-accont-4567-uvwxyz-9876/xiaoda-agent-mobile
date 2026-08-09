@@ -3,16 +3,15 @@
 验证项目各功能模块的端到端可用性，使用 mock 避免 API 调用。
 """
 
+import asyncio
 import os
 import re
-import asyncio
 import tempfile
-from pathlib import Path
 from dataclasses import fields
-from unittest.mock import patch, MagicMock, AsyncMock
+from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
 
 # ── 1. 核心模块导入和初始化测试 ──────────────────────────────
 
@@ -26,12 +25,12 @@ class TestCoreModuleImport:
         assert ProcessResult is not None
 
     def test_import_security(self):
-        from security.security import SecurityFilter, SecurityCheckResult
+        from security.security import SecurityCheckResult, SecurityFilter
         assert SecurityFilter is not None
         assert SecurityCheckResult is not None
 
     def test_import_emotion_simple(self):
-        from emotion.emotion_simple import detect_emotion, build_emotion_hint
+        from emotion.emotion_simple import build_emotion_hint, detect_emotion
         assert detect_emotion is not None
         assert build_emotion_hint is not None
 
@@ -40,7 +39,7 @@ class TestCoreModuleImport:
         assert StickerManager is not None
 
     def test_import_tool_registry(self):
-        from tool_engine.tool_registry import to_openai_tools, get_tool, clear_tools
+        from tool_engine.tool_registry import clear_tools, get_tool, to_openai_tools
         assert to_openai_tools is not None
         assert get_tool is not None
         assert clear_tools is not None
@@ -48,16 +47,6 @@ class TestCoreModuleImport:
     def test_import_database(self):
         from db.database import DatabaseManager
         assert DatabaseManager is not None
-
-    def test_import_vision_service(self):
-        """vision_service 依赖 numpy，在无 numpy 时验证模块结构存在"""
-        try:
-            from utils.vision_service import VisionService
-            assert VisionService is not None
-        except ImportError:
-            # numpy 未安装时跳过，仅验证源文件存在
-            vs_path = Path(__file__).parent.parent / "utils" / "vision_service.py"
-            assert vs_path.exists(), "vision_service.py 应存在"
 
     def test_import_hooks(self):
         from hooks import HookEngine, SecurityPreCheck, get_hook_engine
@@ -141,7 +130,7 @@ class TestToolRegistryCompleteness:
         # 验证之前遗漏的 6 个工具模块已注册
         _expected_modules = {
             "agnes_tools", "system_tools",
-            "vision_tools", "memory_tool", "nudge_tool",
+            "memory_tool", "nudge_tool",
         }
         # 这些模块中的工具名应该存在
         # 逐一检查各模块注册的代表性工具
@@ -158,11 +147,6 @@ class TestToolRegistryCompleteness:
         from tool_engine.tool_registry import _tools
         sys_names = [name for name in _tools if "service" in name.lower() or "network" in name.lower() or "system" in name.lower()]
         assert len(sys_names) > 0, f"system_tools 应注册工具，当前工具列表: {list(_tools.keys())}"
-
-    def test_vision_tools_registered(self):
-        from tool_engine.tool_registry import _tools
-        vis_names = [name for name in _tools if "vision" in name.lower() or "camera" in name.lower() or "capture" in name.lower()]
-        assert len(vis_names) > 0, f"vision_tools 应注册工具，当前工具列表: {list(_tools.keys())}"
 
     def test_memory_tool_registered(self):
         from tool_engine.tool_registry import _tools
@@ -231,8 +215,8 @@ class TestSecurityFilterE2E:
 
     def test_dev_mode_downgrades_block_to_warn(self):
         """测试开发板模式下安全威胁的处理"""
+        from security.permission_manager import PermissionMode, get_permission_manager
         from security.security import SecurityFilter
-        from security.permission_manager import get_permission_manager, PermissionMode
         sf = SecurityFilter()
         pm = get_permission_manager()
         original_mode = pm.mode
@@ -246,8 +230,8 @@ class TestSecurityFilterE2E:
 
     def test_dev_mode_disabled_blocks(self):
         """测试 AGENT_DEV_MODE 未设置时高置信度威胁被 block"""
+        from security.permission_manager import PermissionMode, get_permission_manager
         from security.security import SecurityFilter
-        from security.permission_manager import get_permission_manager, PermissionMode
         sf = SecurityFilter()
         # 临时切换到 DEFAULT 模式
         pm = get_permission_manager()
@@ -461,38 +445,7 @@ class TestSilentExceptionFix:
             assert "logger" in method_content, "_notify_status 的异常处理应有日志记录"
 
 
-# ── 7. NPU 环境变量控制测试 ──────────────────────────────────
-
-
-class TestNPUEnvControl:
-    """NPU 环境变量控制测试"""
-
-    def test_npu_disabled_by_default(self):
-        """测试 ENABLE_NPU 未设置时，vision_service 不走 NPU 路径"""
-        with patch.dict("sys.modules", {"numpy": MagicMock(), "ncnn": MagicMock()}):
-            from utils.vision_service import VisionService
-            with patch.dict(os.environ, {}, clear=True):
-                os.environ.pop("ENABLE_NPU", None)
-                vs = VisionService()
-                vs._load_model()
-                assert vs.backend != "npu", "未设置 ENABLE_NPU 时不应走 NPU 路径"
-
-    def test_npu_enabled_but_unavailable_falls_back(self):
-        """测试 ENABLE_NPU=true 但 NPU 不可用时回退"""
-        with patch.dict("sys.modules", {"numpy": MagicMock(), "ncnn": MagicMock()}):
-            from utils.vision_service import VisionService
-            with patch.dict(os.environ, {"ENABLE_NPU": "true"}):
-                vs = VisionService()
-                # 在 _load_model 内部 from npu_inference import NPUInference 会成功
-                # 我们需要 mock npu_inference 模块使其 is_available 返回 False
-                mock_npu_module = MagicMock()
-                mock_npu_module.NPUInference.is_available.return_value = False
-                with patch.dict("sys.modules", {"npu_inference": mock_npu_module}):
-                    vs._load_model()
-                    assert vs.backend != "npu", "NPU 不可用时应回退"
-
-
-# ── 8. Web UI ProcessResult 支持测试 ──────────────────────────
+# ── 7. Web UI ProcessResult 支持测试 ──────────────────────────
 
 
 class TestWebUIProcessResult:
@@ -588,7 +541,7 @@ class TestFilePathSandbox:
 
     def test_validate_path_allows_project_dir(self):
         """测试 _validate_path 对白名单路径的放行"""
-        from tools.file_tools_v2 import _validate_path, _PROJECT_DIR
+        from tools.file_tools_v2 import _PROJECT_DIR, _validate_path
         # 项目目录下的文件应被允许读取
         allowed, _resolved, reason = _validate_path(os.path.join(_PROJECT_DIR, "config.py"))
         assert allowed is True, f"项目目录文件应被允许: {reason}"

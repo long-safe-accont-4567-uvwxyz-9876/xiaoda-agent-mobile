@@ -1,10 +1,9 @@
-from typing import Any
 import asyncio
-import json
 import shutil
 import time
-from loguru import logger
+from typing import Any
 
+from loguru import logger
 
 OWNER_ONLY_COMMANDS: set[str] = {
     "/reset",   # 系统重置（清空对话上下文，影响运行时状态）
@@ -13,7 +12,6 @@ OWNER_ONLY_COMMANDS: set[str] = {
     "/model",   # 切换模型（影响 Agent 行为）
     "/voice",   # 语音模式开关
     "/agent",   # 切换对话目标 Agent
-    "/cam",     # 摄像头控制（隐私敏感）
     "/compress", # 手动压缩上下文（影响运行时状态）
     "/forget",  # 删除记忆（数据破坏性操作）
     "/learn",   # 学习管理（影响长期记忆与行为）
@@ -33,7 +31,6 @@ COMMAND_DESCRIPTIONS = {
     "/agent": "切换子代理",
     "/hw": "硬件状态",
     "/sys": "系统命令",
-    "/cam": "摄像头控制",
     "/memory": "记忆统计",
     "/emotion": "情绪检测",
     "/knowledge": "知识图谱查询",
@@ -67,7 +64,6 @@ COMMAND_META: dict[str, dict] = {
     "/doctor": {"usage": "/doctor [json|fix]", "arg_completions": ["json", "fix"]},
     "/self": {"usage": "/self [json]", "arg_completions": ["json"]},
     "/cost": {"usage": "/cost [7d]", "arg_completions": ["7d"]},
-    "/cam": {"usage": "/cam [snap]", "arg_completions": ["snap"]},
     "/agent": {"usage": "/agent [名称]", "arg_completions": []},
     "/wf": {"usage": "/wf <工作流ID>", "arg_completions": []},
 }
@@ -156,7 +152,6 @@ class SlashCommandHandler:
             "/agent": self._cmd_agent,
             "/hw": self._cmd_hw,
             "/sys": self._cmd_sys,
-            "/cam": self._cmd_cam,
             "/memory": self._cmd_memory,
             "/emotion": self._cmd_emotion,
             "/knowledge": self._cmd_knowledge,
@@ -559,27 +554,6 @@ class SlashCommandHandler:
             lines.append(f"🤖 当前模型: {label} ({pref})")
         return "\n".join(lines)
 
-    async def _cmd_cam(self, args: str, user_id: str) -> str:
-        if not self._is_owner(user_id):
-            return "只有主人才能使用摄像头哦~"
-        try:
-            from utils.vision_service import VisionService
-            vs = VisionService()
-            ok, frame = vs.capture_frame(device=0)
-            if not ok:
-                return f"📷 摄像头不可用: {frame}"
-            if args.strip() == "snap":
-                path = vs.save_frame(frame)
-                h, w = frame.shape[:2]
-                return f"📸 已拍照保存\n分辨率: {w}x{h}\n路径: {path}"
-            description = vs.describe_scene(frame)
-            colors = vs.analyze_colors(frame)
-            color_str = ", ".join([f"{c.color}({c.percentage:.0f}%)" for c in colors[:3]])
-            path = vs.save_frame(frame)
-            return f"📷 摄像头画面分析\n{description}\n主色调: {color_str}\n图片已保存: {path}"
-        except (OSError, RuntimeError, ValueError) as e:
-            return f"📷 摄像头操作失败: {str(e)[:100]}"
-
     async def _cmd_memory(self, args: str, user_id: str) -> str:
         lines = ["🧠 记忆统计"]
         if self._db:
@@ -708,6 +682,7 @@ class SlashCommandHandler:
             /doctor fix       自动修复可修复的问题
         """
         import asyncio
+
         from core.doctor import _create_default_doctor
 
         doc = _create_default_doctor()
@@ -775,6 +750,7 @@ class SlashCommandHandler:
             return "工作流 ID 格式不正确（只能含字母/数字/下划线/中文/连字符）"
 
         import json
+
         from config import WORKSPACE_DIR
 
         wf_path = WORKSPACE_DIR / "workflows" / f"{args}.json"
@@ -806,8 +782,7 @@ class SlashCommandHandler:
             ("/forget", "清除短期对话记忆"),
             ("/learn", "查看学习记录"),
             ("/note", "查看笔记本"),
-            ("/hw", "查看香橙派硬件状态"),
-            ("/cam", "拍照并分析摄像头画面（/cam snap仅拍照）"),
+            ("/hw", "查看本机硬件状态"),
             ("/sys", "查看系统运行状态"),
             ("/memory", "查看记忆统计"),
             ("/emotion", "查看当前情绪状态"),

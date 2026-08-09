@@ -17,11 +17,10 @@
     "debug",
     "script",
     "programming",
-    "hardware",
     "system",
     "devops"
   ],
-  "route_description": "编程、代码编写、调试、技术问题、硬件控制、系统运维、开发辅助",
+  "route_description": "编程、代码编写、调试、技术问题、系统运维、开发辅助",
   "mcp_servers": [
     "git",
     "github"

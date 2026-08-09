@@ -28,12 +28,6 @@ services:
     # 通过 tmpfs 提供可写的 /tmp，避免 read_only 导致 tempfile 失败
     tmpfs:
       - /tmp
-    # 硬件直通（可选，ARM 设备如 Orange Pi）
-    # devices:
-    #   - /dev/i2c-0:/dev/i2c-0
-    #   - /dev/video0:/dev/video0
-    #   - /sys/class/gpio:/sys/class/gpio
-    #   - /sys/class/pwm:/sys/class/pwm
     deploy:
       resources:
         limits:

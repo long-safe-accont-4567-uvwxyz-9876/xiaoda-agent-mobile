@@ -1,16 +1,19 @@
+import json
 import logging
 import os
 import re
-import json
+import shutil
 import sys
+from pathlib import Path
+from typing import Any
+
+from dotenv import load_dotenv
+
+from security import credential_vault
+from utils.common import safe_int as _safe_int
+from utils.encrypted_credential import protect_credential
 
 logger = logging.getLogger(__name__)
-from typing import Any
-import shutil
-from pathlib import Path
-from dotenv import load_dotenv
-from utils.encrypted_credential import protect_credential
-from security import credential_vault
 
 
 def get_secret(name: str, default: str = "") -> str:
@@ -182,7 +185,7 @@ def get_config_dir() -> Path:
     return CONFIG_DIR
 
 def _resolve_data_path(kioxia_path: Path, fallback_path: Path) -> Path:
-    """解析数据路径，优先使用 KIOXIA 外置存储，失败时降级到 fallback。
+    r"""解析数据路径，优先使用 KIOXIA 外置存储，失败时降级到 fallback。
 
     规则：
     - 显式设置 KIOXIA_DATA_DIR 时：仅当外置盘已挂载（base 目录存在）才使用，
@@ -1002,11 +1005,8 @@ AGENT_ROUTE_KEYWORDS = {
         "代码", "编程", "写代码", "debug", "调试", "程序", "开发", "部署",
         "git", "api", "接口", "函数", "脚本", "运行", "执行命令",
         "巡检", "检查系统", "磁盘", "内存", "cpu", "进程", "服务状态",
-        "日志", "监控", "系统信息", "香橙派", "orange pi", "服务器",
+        "日志", "监控", "系统信息", "服务器",
         "docker", "容器", "网络", "端口", "防火墙", "配置文件",
-        "gpio", "i2c", "spi", "传感器", "led", "舵机", "硬件", "引脚",
-        "串口", "uart", "pwm", "adc", "dac",
-        "摄像头", "拍照", "观察", "识别", "检测",
         "重启服务", "部署", "服务状态", "系统服务",
         "重启", "服务",
     ],
@@ -1045,10 +1045,6 @@ RERANKER_API_KEY = get_secret("RERANKER_API_KEY", "")
 RERANKER_BASE_URL = os.getenv("RERANKER_BASE_URL", "https://api.siliconflow.cn/v1")
 RERANKER_MODEL = os.getenv("RERANKER_MODEL", "BAAI/bge-reranker-v2-m3")
 RERANKER_ENABLED = os.getenv("RERANKER_ENABLED", "true").lower() in ("1", "true", "yes")
-
-
-from utils.common import safe_int as _safe_int
-
 
 def _safe_float(env_val: str | None, default: float) -> float:
     """安全解析浮点数环境变量, 非法值回退到 default."""
@@ -1201,7 +1197,6 @@ MEMORY_DISTILL_BATCH = _safe_int(os.getenv("MEMORY_DISTILL_BATCH"), 30)
 MEMORY_DISTILL_ENABLED = os.getenv("MEMORY_DISTILL_ENABLED", "false").lower() in ("1", "true", "yes")
 
 # MCP_SERVERS：使用 shutil.which() 动态解析命令路径，兼容 Windows/Linux/macOS
-# 不再硬编码 Orange Pi 上的绝对路径，避免在其他设备上失效
 
 
 def _resolve_command(name: str) -> str:

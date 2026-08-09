@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount, h } from 'vue'
-import { NButton, NTag, NSelect, NModal, NTabs, NTabPane, useMessage, type SelectOption } from 'naive-ui'
+import { NButton, NTag, NSelect, NTabs, NTabPane, useMessage, type SelectOption } from 'naive-ui'
 import { get, post } from '../api'
 import { t } from '../i18n'
 import Tilt3D from '../components/fx/Tilt3D.vue'
@@ -17,7 +17,6 @@ let timer: number | null = null
 
 const mode = computed(() => status.value?.mode ?? 'remote')
 const running = computed(() => status.value?.engine_running ?? false)
-const backend = computed(() => status.value?.backend ?? 'auto')
 const apiConfigured = computed(() => status.value?.api_configured ?? false)
 
 async function refreshStatus() {
@@ -70,17 +69,15 @@ async function stopEngine() {
 // ── 算力设备检测 ─────────────────────────────────────
 const devices = ref<any[]>([])
 const currentDevice = ref('')
-const runtimeBackend = ref('auto')
+const runtimeBackend = ref('cpu')
 const deviceLogs = ref<string[]>([])
 const devicesLoading = ref(false)
-const showDeviceConfirm = ref(false)
-const pendingDevice = ref<any>(null)
 
 const deviceOptions = computed<SelectOption[]>(() =>
   devices.value.map(d => ({
     label: `${d.name} · ${d.model}`,
     value: d.id,
-    disabled: !d.available,
+    disabled: true,
     dev: d,
   })),
 )
@@ -108,41 +105,13 @@ async function refreshDevices() {
     const r = await get<any>('/local-deploy/devices')
     devices.value = r.devices || []
     currentDevice.value = r.current || ''
-    runtimeBackend.value = r.runtime_backend || 'auto'
+    runtimeBackend.value = r.runtime_backend || 'cpu'
   } catch { /* 静默 */ } finally {
     devicesLoading.value = false
   }
 }
 async function refreshDeviceLogs() {
   try { deviceLogs.value = await get('/local-deploy/logs?limit=80&topic=device') } catch { /* 静默 */ }
-}
-
-function onDeviceChange(val: string) {
-  if (!val || val === currentDevice.value) return
-  const d = devices.value.find(x => x.id === val)
-  if (!d?.available) return
-  pendingDevice.value = d
-  showDeviceConfirm.value = true
-}
-
-async function confirmDeviceSwitch() {
-  const d = pendingDevice.value
-  if (!d) return
-  showDeviceConfirm.value = false
-  devicesLoading.value = true
-  try {
-    await post('/local-deploy/device', { device: d.id })
-    message.success(t('localDeployView.deviceSaved'))
-    currentDevice.value = d.id
-    message.warning(t('localDeployView.deviceRestarting'))
-    // 重启服务：X-Confirm 头由 api.post 的 confirm 参数携带
-    setTimeout(() => { post('/system/restart', {}, true).catch(() => {}) }, 1200)
-  } catch (e: any) {
-    message.error(e?.message || t('localDeployView.switchFailed'))
-    await refreshDevices()
-  } finally {
-    devicesLoading.value = false
-  }
 }
 
 onMounted(async () => {
@@ -190,7 +159,7 @@ onBeforeUnmount(() => { if (timer) window.clearInterval(timer) })
                 </n-tag>
                 <span v-if="mode === 'local'" class="backend-row">
                   <span class="backend-hint">
-                    {{ backend === 'cpu' ? t('localDeployView.backendCpu') : t('localDeployView.backendNpu') }}
+                    {{ t('localDeployView.backendCpu') }}
                   </span>
                   <span class="device-pick">
                     <span class="device-pick-label">{{ t('localDeployView.devicePick') }}</span>
@@ -200,10 +169,9 @@ onBeforeUnmount(() => { if (timer) window.clearInterval(timer) })
                       :loading="devicesLoading"
                       :disabled="devicesLoading"
                       size="small"
-                      placeholder="CPU / NPU"
+                      placeholder="CPU"
                       class="device-pick-select"
                       :render-label="renderDeviceLabel"
-                      @update:value="onDeviceChange"
                     />
                   </span>
                 </span>
@@ -269,25 +237,11 @@ onBeforeUnmount(() => { if (timer) window.clearInterval(timer) })
                 </div>
               </div>
 
-              <!-- NPU：算力 + 常驻流状态 + 最近推理 -->
-              <div v-else-if="d.id === 'npu' && d.stats" class="dev-stats">
-                <div class="stat-line">
-                  3 TOPS INT8
-                  <span class="stat-sep">·</span>
-                  {{ d.stats.resident ? t('localDeployView.npuResident') : t('localDeployView.npuNotResident') }}
-                </div>
-                <div class="stat-line">
-                  {{ t('localDeployView.lastCall') }}: {{ d.stats.last_call_ms != null ? d.stats.last_call_ms + ' ms' : '—' }}
-                  <span class="stat-sep">·</span>
-                  {{ t('localDeployView.callCount') }}: {{ d.stats.calls ?? 0 }}
-                </div>
-              </div>
             </div>
           </div>
 
           <div class="runtime-hint">
             {{ t('localDeployView.runtimeBackend') }}: <code>{{ runtimeBackend }}</code>
-            <span class="restart-tag">{{ t('localDeployView.restartRequired') }}</span>
           </div>
         </section>
         </Tilt3D>
@@ -304,18 +258,6 @@ onBeforeUnmount(() => { if (timer) window.clearInterval(timer) })
       </n-tab-pane>
     </n-tabs>
 
-    <!-- 设备切换确认弹窗 -->
-    <n-modal
-      v-model:show="showDeviceConfirm"
-      preset="dialog"
-      type="warning"
-      :title="t('localDeployView.switchDeviceConfirmTitle')"
-      :content="t('localDeployView.switchDeviceConfirmDesc')(pendingDevice?.name || '')"
-      :positive-text="t('ok')"
-      :negative-text="t('cancel')"
-      @positive-click="confirmDeviceSwitch"
-      @negative-click="showDeviceConfirm = false"
-    />
   </div>
 </template>
 

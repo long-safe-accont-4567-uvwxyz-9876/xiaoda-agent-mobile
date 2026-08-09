@@ -5,7 +5,7 @@
 > 运行在 windows和Linux系统上的多智能体 AI 助手 ，40+ 工具赋能，三通道交互，认知系统闭环，RAG 检索增强
 
 <p align="center">
-  <strong>多智能体</strong> · <strong>认知闭环</strong> · <strong>RAG 增强</strong> · <strong>插件系统</strong> · <strong>MCP 协议</strong> · <strong>边缘部署</strong>
+  <strong>多智能体</strong> · <strong>认知闭环</strong> · <strong>RAG 增强</strong> · <strong>插件系统</strong> · <strong>MCP 协议</strong> · <strong>本地与服务器部署</strong>
 </p>
 
 ***
@@ -51,7 +51,7 @@
 | 情绪   | 无             | 16 种情绪检测 → 贴纸 + 语音风格联动                           | <!-- auto-updated by scripts/count_project_stats.py -->
 | 工具   | 少量 API 调用     | 40+ 内置工具 + MCP 协议扩展 + 插件系统                       |
 | 多智能体 | 单一模型          | 5 角色人格 + 图编排 + 委托机制                              |
-| 部署   | 云端依赖          | 边缘设备运行，Docker / 安装包一键部署                          |
+| 部署   | 云端依赖          | Windows / Linux / Docker / 安装包一键部署                   |
 | 交互   | 单一通道          | QQ Bot + Web UI + CLI 三通道                        |
 | 配置   | 改配置文件重启       | WebUI 热生效配置（DND/问候/模型/工具）                        |
 
@@ -152,10 +152,8 @@
 | **网络搜索**   | 多引擎搜索（Bing/Baidu/Google）    | 自动降级，引擎不可用时切换                   |
 | **网页浏览**   | 抓取和提取网页内容                   | SSRF 防护（DNS 预检 + 内网 IP 过滤）      |
 | **系统管理**   | Shell 命令 / Docker / systemd | 权限分级（DEFAULT/DEV/STRICT/BYPASS） |
-| **硬件控制**   | GPIO / I2C / PWM / 传感器      | 边缘设备专属，容器内优雅降级                  |
 | **AI 生成**  | 图像 / 视频 / TTS 语音            | Agnes AI + MiMo TTS，速率限制 + 缓存   |
 | **文档阅读**   | PDF / DOCX / Excel / PPT    | 多格式解析，智能截断                      |
-| **视觉识别**   | 摄像头 + YOLOv5                | NPU 加速（RK3588S），实时目标检测          |
 | **记忆管理**   | remember / recall / forget  | 工具级记忆操作，用户可控                    |
 | **知识查询**   | Wolfram Alpha / 天气          | 结构化知识获取                         |
 | **MCP 协议** | 外部 MCP 服务器工具                | stdio/SSE/HTTP 三传输，自动发现注册       |
@@ -469,8 +467,6 @@ xiaoda-agent/
 │   ├── text_utils.py         #   文本处理（去AI化/截断/分段）
 │   ├── atomic_write.py       #   原子文件写入
 │   ├── lazy_deps.py          #   懒加载依赖
-│   ├── npu_inference.py      #   NPU 推理（RK3588S）
-│   ├── vision_service.py     #   视觉服务
 │   ├── file_receiver.py      #   文件接收
 │   ├── smart_error_handler.py #  智能错误处理
 │   ├── xiaoda_acp.py         #   小妲 ACP 协议
@@ -481,7 +477,6 @@ xiaoda-agent/
 │   └── sandbox_config.py     #   沙箱安全配置
 ├── tools/                    # 内置工具模块
 │   ├── system_tools.py       #   Shell/进程/Docker/服务
-│   ├── hardware_tools.py     #   GPIO/I2C/PWM/传感器
 │   ├── code_tools_v2.py      #   Python 沙箱（AST 审查）
 │   ├── web_tools_v2.py       #   HTTP/API
 │   ├── web_browse_tools.py   #   网页浏览（SSRF 防护）
@@ -490,7 +485,6 @@ xiaoda-agent/
 │   ├── document_tools.py     #   文档阅读（PDF/DOCX/XLSX/PPT）
 │   ├── memory_tool.py        #   记忆工具（bind 注入）
 │   ├── agnes_tools.py        #   AI 生成（速率限制）
-│   ├── vision_tools.py       #   视觉识别
 │   └── nudge_tool.py         #   主动消息工具
 ├── db/                       # 数据库
 │   ├── database.py           #   数据库管理（自动迁移）

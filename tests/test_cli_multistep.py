@@ -74,7 +74,7 @@ def test_palette_nodes_single_step_are_leaves():
         assert by_label[name].is_leaf, name
         assert by_label[name].result == name, name
     # 多步命令：非叶子、带 loader、无 result
-    for name in ("/model", "/voice", "/doctor", "/cost", "/cam", "/agent"):
+    for name in ("/model", "/voice", "/doctor", "/cost", "/agent"):
         assert name in by_label, name
         assert not by_label[name].is_leaf, name
         assert by_label[name].loader is not None, name
