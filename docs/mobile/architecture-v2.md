@@ -4,7 +4,7 @@
 
 ### 1.1 主决策
 
-采用“共享 WebUI + 远端 AgentCore + Android 系统壳 + 可选终端承载”的架构。
+采用“共享 WebUI + 远端 AgentCore + Android 安全系统壳”的架构。移动端不提供终端；桌面 Web 终端保持现有能力。
 
 ```text
 Android App
@@ -12,12 +12,11 @@ Android App
   │   ├─ 认证令牌安全存储
   │   ├─ 文件选择、分享、通知、深链
   │   ├─ 生命周期和网络状态
-  │   └─ 可选 Terminal Bridge
   └─ Bundled Vue WebUI
       ├─ 方案 C 移动导航
       ├─ 全部现有业务页面
       ├─ REST / WebSocket Client
-      └─ xterm.js UI
+      └─ 移动端不挂载终端 UI
 
 Remote Xiaoda Service
   ├─ FastAPI / WebSocket
@@ -55,7 +54,7 @@ Optional Terminal Runtime
 
 - 单一导航事实源。
 - 单一 Provider 事实模型。
-- 单一 Chat/Terminal/Wallpaper 数据链路。
+- 单一 Chat/Wallpaper 数据链路；桌面 Terminal 独立保留。
 - 所有高风险边界可自动验收。
 - 新上下文只依赖仓库文档即可接管。
 
@@ -64,7 +63,7 @@ Optional Terminal Runtime
 - 不在 Android 端运行模型推理。
 - 不在 Android 端运行 AgentCore、FastAPI、向量数据库或插件宿主。
 - 不保证后台永久 WebSocket。
-- 不把 Termux 当作 OS 级安全沙箱。
+- The production mobile shell does not expose terminal UI, a terminal Bridge, or remote CLI autostart. An isolated opt-in Termux research build is allowed only for G5 validation.
 - 不在本轮重写全部桌面 WebUI 页面。
 
 ## 3. 技术栈
@@ -78,7 +77,7 @@ Optional Terminal Runtime
 | 路由 | Vue Router 4.4 | 桌面与移动共享路由定义和能力元数据 |
 | 状态 | Pinia 2.2 | 不复制移动专属业务 Store |
 | 组件 | Naive UI 2.40 | 对移动抽屉、Sheet、表单做封装 |
-| 终端 | xterm.js 6 | 仅负责终端显示与输入，不持有进程所有权 |
+| 桌面终端 | xterm.js 6 | 仅在桌面 Web 挂载；移动端不显示、不初始化 |
 | 图表 | ECharts、3d-force-graph、Three.js | 移动端按性能档位降级 |
 | 内容 | markdown-it、highlight.js | 保持现有消息渲染链 |
 
@@ -105,7 +104,6 @@ Optional Terminal Runtime
 | 网络 | WebView 网络层或受控原生代理 | Release 仅允许 HTTPS/WSS |
 | 文件 | Storage Access Framework | 只返回用户明确选择的 URI |
 | 通知 | Android Notification API | 不伪造后台常驻连接 |
-| 终端 | 独立可选 runtime 模块 | 只运行远程 CLI，不运行服务端 |
 
 Android 依赖版本在创建工程时以当期稳定版和官方兼容矩阵为准，文档不硬编码未来会失效的版本号。
 
@@ -173,14 +171,12 @@ Provider 创建、更新、删除必须由应用服务协调，路由层不得�
   -> :core:webcontainer
   -> :core:security
   -> :core:bridge-api
-  -> :feature:terminal-runtime
 ```
 
 - `:app`：Activity、启动路由、依赖装配。
 - `:core:webcontainer`：WebView 安全配置、资源加载、导航策略。
 - `:core:security`：Token、安全存储、证书和日志脱敏。
 - `:core:bridge-api`：最小 JS Bridge 契约。
-- `:feature:terminal-runtime`：可选终端进程、PTY 和 CLI 生命周期。
 
 Web 页面不得获得任意命令执行、任意文件路径或任意 Android Intent 能力。
 
@@ -190,7 +186,7 @@ Web 页面不得获得任意命令执行、任意文件路径或任意 Android I
 
 | 入口 | 路由 | 页面职责 |
 |---|---|---|
-| 聊天 | `/` | 会话、模型、附件、TTS、终端 |
+| 聊天 | `/` | 会话、模型、附件、TTS |
 | Agent | `/settings/agents` | Agent、人格、权限、壁纸 |
 | 记忆 | `/insight` | 记忆、画像、情绪、事件、知识图谱 |
 | 工具 | `/settings/tools` | Skills 与工具状态 |
@@ -210,7 +206,6 @@ Web 页面不得获得任意命令执行、任意文件路径或任意 Android I
 - 左上角：全部能力抽屉。
 - 中上部：当前 Agent、处理状态。
 - 右上角：连接、当前服务商、通知、快捷设置。
-- Chat 右下角：终端悬浮按钮。
 - 长列表页面：主要新增操作放右下角 FAB；批量操作进入顶部上下文栏。
 
 ## 6. 图标与壁纸
@@ -238,8 +233,8 @@ motion_mode: full | reduced | static
 
 显示规则：
 
-- 壁纸始终使用 cover，不因键盘或终端展开缩放。
-- 顶栏、消息、输入栏、底栏和终端使用局部磨砂。
+- 壁纸始终使用 cover，不因键盘或系统栏变化缩放。
+- 顶栏、消息、输入栏和底栏使用局部磨砂。
 - 使用 safe-area inset 避开刘海和手势区。
 - 根据局部亮度调整文字和遮罩。
 - 省电、高温、低性能设备冻结动态效果。
@@ -358,32 +353,24 @@ warnings
 
 ## 9. 终端架构
 
-### 9.1 Web 终端
+### 9.1 桌面 Web 终端
 
-现有 xterm.js 和 WebSocket terminal 协议继续复用。移动端只调整容器：
+现有 xterm.js、WebSocket terminal 协议和服务端进程所有权仅保留给桌面 Web：
 
-- 手机：底部 Sheet，支持半屏和全屏。
-- 桌面：保留右侧面板。
-- 旋转和键盘变化不得创建新终端会话。
-- 页面隐藏时终端会话策略由服务端会话所有权决定。
+- 桌面端保留右侧终端面板和既有多会话行为。
+- 移动断点不挂载 `ChatTerminal`，Android WebView 无论窗口宽度都不挂载终端。
+- 移动端不得出现终端 FAB、Sheet、PTY、shell、CLI 自动启动或终端 Bridge。
+- 服务端与桌面 Web 的终端实现不因本决策删除，仍需保持会话归属、进程树回收和限流门禁。
 
-### 9.2 Android 可选终端承载
+### 9.2 Mobile Termux research runtime
 
-Termux 方向仅允许以下能力：
+The latest G5 decision on 2026-08-10 reopens G5-05/G5-06 research without changing the production product boundary:
 
-- 提供 PTY 和终端渲染所需运行时。
-- 自动启动 Xiaoda 远程 CLI 客户端。
-- CLI 只通过 HTTPS/WSS 连接远端服务。
-- 工作目录固定在应用私有目录。
-- 用户可见停止入口和运行状态。
-
-明确禁止：
-
-- 打包 AgentCore、FastAPI、本地模型和 Provider Key。
-- 宣称完整 shell 无法访问同 UID 私有数据。
-- 将 Agent 自动命令与用户自由 shell 共用同一审批语义。
-
-Termux 组件、bootstrap、许可证、商店政策和源码提供义务必须在实现前完成专项确认；这不是法律结论，必须由法务或发布负责人确认。
+- The isolated `:feature:terminal-runtime` module freezes official `termux/termux-app` `terminal-emulator` v0.118.3 at commit `5b657c6adf4304e5198951ce815fe0205dcac29c`.
+- Only Java/JNI sources are vendored and rebuilt with Android NDK 22.1.7171670 for `arm64-v8a` and `x86_64`; no Termux APK, package manager, or package bootstrap is embedded.
+- Only `-PterminalRuntimeResearchEnabled=true` adds the module to a debug research APK. Default debug, staging, and release APKs must not contain `libtermux.so`.
+- The production Bridge has no terminal or command methods, and Android WebView does not mount `ChatTerminal`. RuntimeSupervisor and remote-CLI policy remain a native research PoC.
+- Legal, store, installed-size, connected-device process-tree, and app-private native CLI gates must pass before production autostart can be enabled.
 
 ## 10. 安全边界
 
@@ -392,7 +379,7 @@ Termux 组件、bootstrap、许可证、商店政策和源码提供义务必须�
 - JS Bridge 使用固定方法白名单和来源校验。
 - WebView 禁用任意文件访问、调试和混合内容。
 - Provider 密钥仅存在服务端 CredentialVault。
-- 终端和 Agent 工具执行是两个信任域。
+- 桌面 Web 终端和 Agent 工具执行是两个信任域；移动端不暴露终端。
 - 高风险工具继续走现有审批，不因移动 UI 缩短审批链。
 - 上传使用系统选择器和 MIME/大小校验。
 
@@ -428,19 +415,31 @@ Termux 组件、bootstrap、许可证、商店政策和源码提供义务必须�
 - 决策：OpenAI-compatible Provider 是主要扩展入口。
 - 后果：Provider 事务、安全出站、诊断和测试成为 P0。
 
-### ADR-MOB2-006 可选终端承载
+### ADR-MOB2-006 Optional terminal carrier (superseded)
 
-- 状态：条件接受。
-- 决策：Termux 只运行远程 CLI。
-- 条件：许可证、商店政策、生命周期和安全验收全部通过。
+- Status: first superseded by ADR-MOB2-008, then narrowed to research-only by ADR-MOB2-009.
+- Current result: production mobile exposes no terminal; only the isolated runtime and release-gate evidence remain.
 
 ### ADR-MOB2-007 Android 骨架可提前并行
 
 - 状态：接受。
-- 决策：经用户明确批准，G5-01 的五模块安全空壳与独立 APK CI 可在 G1-08 收口期间并行完成。
-- 范围：仅允许固定工具链、模块边界、三变体、安全默认值、disabled terminal 契约和 APK 防复活门禁。
+- 决策：经用户明确批准，G5-01 的 Android 安全空壳与独立 APK CI 可在 G1-08 收口期间并行完成。
+- 范围：仅允许固定工具链、四模块边界、三变体、安全默认值和 APK 防复活门禁。
 - 限制：不得开始 G5-02，不得依赖未冻结的 Provider、导航、移动页面或壁纸协议；G1-08 与 G2 至 G4 的阶段门禁仍然有效。
 - 后果：G5-01 可独立关闭，但 G5 阶段不得继续推进，直到前置阶段按原顺序全部通过。
+
+### ADR-MOB2-008 Mobile terminal removal (superseded)
+
+- Status: superseded by ADR-MOB2-009 on 2026-08-10.
+- Still valid: production mobile UI/Bridge exposes no terminal; desktop Web terminal and server protocol remain unchanged.
+
+### ADR-MOB2-009 Isolated open-source Termux runtime research
+
+- Status: accepted on 2026-08-10.
+- Decision: use official `termux/termux-app` `terminal-emulator` v0.118.3 at commit `5b657c6adf4304e5198951ce815fe0205dcac29c`, with a frozen source manifest, Apache-2.0 exception text, NDK 22.1.7171670, and two 64-bit ABIs.
+- Packaging: opt-in debug research APK only; default debug, staging, and release exclude the component.
+- Security: no terminal Bridge, no bootstrap, no local Agent/Web service; remote CLI accepts only remote HTTPS/WSS endpoints and provider keys are rejected from the runtime environment.
+- Release: production autostart remains disabled pending legal, store, connected-device, installed-size, and approved native CLI evidence.
 
 ## 12. 架构风险登记
 
@@ -450,7 +449,7 @@ Termux 组件、bootstrap、许可证、商店政策和源码提供义务必须�
 | Provider DNS rebinding | Critical | 安全出站客户端闭环 | 无真实连接测试不得发布 |
 | Provider 三份状态分裂 | Critical | 应用服务事务与故障注入 | 无回滚测试不得发布 |
 | WebView Bridge 权限扩大 | High | 最小白名单、来源校验 | 可执行任意命令则停止 |
-| Termux 许可证/商店政策 | High | BOM、法务与渠道预审 | 未批准不得进入正式包 |
+| Termux research runtime enters a production APK | High | Research-only dependency, Bridge allowlist, ABI/license verifier, APK scan | Block if default debug/staging/release contains `libtermux.so` or a terminal API |
 | 全功能页面移动适配遗漏 | High | 路由覆盖矩阵 | 任一路由不可达不得完成 |
 | 壁纸导致可读性不足 | Medium | 局部遮罩和对比度测试 | 关键文字不达标则阻断 UI |
 | 后台连接不可靠 | Medium | 明确前台连接策略 | 禁止承诺永久后台在线 |

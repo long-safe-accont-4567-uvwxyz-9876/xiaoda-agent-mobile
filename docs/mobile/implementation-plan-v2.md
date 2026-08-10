@@ -57,7 +57,7 @@
 
 - [x] 阅读 `docs/mobile` 六份文档。
 - [x] 确认旧移动方案已被 v2 取代。
-- [x] 确认 Termux 只是远程 CLI 承载。
+- [x] Production mobile UI/Bridge remains terminal-free; Termux exists only as the isolated ADR-MOB2-009 research runtime.
 - [x] 确认本地 AI 与 Ollama 都要删除。
 - [x] 确认所有其他功能入口保留。
 
@@ -280,7 +280,7 @@
 - [x] 宽度变化不销毁业务 Store。
 - [x] 横竖屏切换不丢失页面状态。
 
-**验收**：断点切换不重复初始化 Chat、WS 或终端。
+**验收**：断点切换不重复初始化 Chat 或 WS，移动断点不挂载终端。
 
 ### G3-03 底部五导航
 
@@ -322,7 +322,7 @@
 剩余风险：生产构建仍报告既有大 chunk 警告；根据用户批准的无浏览器验收例外，本阶段以路由覆盖、响应式规则、组件生命周期、键盘焦点、typecheck 和构建替代多视口截图，真实设备返回手势留在 Android 系统壳验收
 关联 ADR：ADR-MOB2 导航与共享 WebUI 决策
 
-## G4 页面、终端和壁纸
+## G4 页面和壁纸
 
 ### G4-01 逐页移动适配
 
@@ -339,18 +339,15 @@
 
 **Closure evidence**: Shared responsive rules cover all 16 production routes. Playwright produced a 16-route matrix at 360x800, 390x844, 412x915, 844x390, 768x1024, and 1440x900 under `output/playwright/g4-routes-*-contact.png`.
 
-### G4-02 终端移动 Sheet
+### G4-02 移动终端（已取消）
 
-- [x] 保留右下角 FAB。
-- [x] 移动端改底部 Sheet。
-- [x] 处理键盘、旋转和 safe area。
-- [x] 保留多会话。
-- [x] 关闭确认和状态同步。
-- [x] 服务端进程树回收测试。
+- [-] Under ADR-MOB2-009, production mobile terminal FAB/Sheet/subscription remains canceled; only native research packaging is retained.
+- [x] `ChatTerminal` 仅在桌面 Web 挂载；移动断点和 Android WebView 均不挂载。
+- [x] 桌面 Web 终端组件、WebSocket terminal 协议与服务端终端保持不变。
 
-**验收**：终端会话不因 UI 重建重复或泄漏。
+**验收**：360dp、390dp、412dp 与 Android WebView 不出现终端 DOM、FAB、Sheet 或终端 Bridge；桌面宽度终端不回归。
 
-**Closure evidence**: The terminal uses a 50/90 percent mobile bottom sheet with drag, VisualViewport resize, rotation-only fit, safe-area FAB, multi-session preservation, close confirmation, ownership/size/session limits, and cross-platform process-tree cleanup tests.
+**取消证据**：产品明确决定“移动端不需要终端”；对应 Android runtime、Bridge 和移动 Sheet 代码已删除，防复活契约纳入 G5/CI。
 
 ### G4-03 壁纸数据扩展
 
@@ -382,7 +379,7 @@
 ### G5-01 工程初始化
 
 - [x] 创建 Kotlin DSL 工程。
-- [x] 建立五个模块。
+- [x] 建立四个模块（`:app`、`:core:webcontainer`、`:core:security`、`:core:bridge-api`）。
 - [x] 配置 debug/staging/release。
 - [x] 固定 JDK、AGP 和依赖目录。
 - [x] 加入 lint、test、assemble CI。
@@ -410,7 +407,7 @@
 - [x] Token 进入 Keystore 保护存储。
 - [x] Web 页面只获得短期会话句柄。
 - [x] Bridge 来源校验。
-- [x] 文件、分享、终端接口参数校验。
+- [x] 文件与分享接口参数校验；终端接口不存在。
 - [x] 日志脱敏。
 
 **验收**：Web Storage、URL、日志和崩溃报告不含明文 token。
@@ -431,34 +428,25 @@
 
 **关闭证据**：SAF 文件选择已由 `PromptInput` Bridge adapter 消费，并将受检字节恢复为 `File` 后复用图片/文档 multipart 上传；系统分享、`xiaoda://app` 深链、Web 历史返回、WebView save/restore、网络回调、Android 13 通知权限和前后台连接策略已接入；无 Service、WakeLock 或后台保活，详见 `test-evidence.md`。
 
-### G5-05 Termux/终端预研门禁
+### G5-05 Termux runtime research gate (engineering complete, release blocked)
 
-- [!] 冻结具体组件和来源：尚无经批准的 Termux 组件/bootstrap 来源。
-- [x] 生成阻塞态 BOM、SBOM、NOTICE，明确当前组件清单为空且不得发布。
-- [!] 法务确认许可证义务：等待书面审核。
-- [!] 商店政策预审：等待目标渠道书面审核。
-- [x] 实现 RuntimeSupervisor 状态机 PoC。
-- [!] 测试 ABI、包体、安装空间：无获批 runtime 二进制，无法完成 ABI/解包空间验收。
-- [x] 测试单实例和停止/崩溃退避；真实进程树回收等待获批 runtime 二进制。
+- [x] Freeze official `termux/termux-app` `terminal-emulator` v0.118.3 at commit `5b657c6adf4304e5198951ce815fe0205dcac29c`; source archive SHA-256 `debd53a911c30f578c5b3600e5609a22b576491b20ce632e155457596ee1d291`.
+- [x] Freeze the Apache-2.0 exception, license text, SOURCE_MANIFEST, BOM, SPDX SBOM, and NOTICE.
+- [x] Rebuild with NDK 22.1.7171670 for `arm64-v8a` and `x86_64`; AAR 117,513 bytes and native libraries 9,008 / 9,248 bytes.
+- [x] Implement PTY launch, app-private command policy, process-group cleanup, RuntimeSupervisor, research-only APK packaging, and CI verification.
+- [!] Legal, target-store, installed-size, and connected-device process-tree evidence is still missing; production packaging stays disabled.
 
-**停止条件**：任一发布义务不清晰，正式包禁用该模块。
+Evidence: the default three APKs contain no `libtermux.so`; the two-ABI research APK SHA-256 is `0267da0b083cd1073386c9f0563d492973eac8e8ecde21b2b763febc8f09c002`. Engineering research is complete; release remains BLOCKED.
 
-**阻塞证据**：所有变体 `TERMINAL_RUNTIME_ENABLED=false`，公开状态为 `disabled/canStart=false`；BOM/SBOM/NOTICE 和 PoC 测试已生成，但法务、渠道、ABI、空间与真实进程树验收未完成，因此 G5-05 保持阻塞，详见 `test-evidence.md`。
+### G5-06 Remote CLI autostart (PoC complete, production integration blocked)
 
-### G5-06 远程 CLI 自动启动
+- [x] Accept only remote HTTPS/WSS and reject local/private destinations, unsafe URL forms, and provider-key environment variables.
+- [x] Inject endpoint, nonce, and protocol version; JVM tests cover single-instance launch, user stop, process-group cleanup, and finite exponential backoff.
+- [!] The app-private native remote CLI is not frozen, and instrumentation is compiled but awaits emulator CI / real-device execution.
 
-- [!] CLI 策略禁止本地 Web/Agent 服务端点：策略测试存在，但正式 runtime 未获批。
-- [!] CLI 配置只接受远端 HTTPS/WSS 地址：策略测试存在，但未完成真实进程验收。
-- [!] 实例 nonce 和协议版本握手：仅 PoC，未接入获批 CLI 二进制。
-- [!] 用户可停止和查看状态：仅 PoC，未完成设备和进程树验收。
-- [!] 崩溃退避，禁止无限重启：仅状态机测试，未验证真实崩溃进程。
-- [!] 环境策略拒绝 Provider Key：静态策略存在，正式启动仍被禁用。
+Evidence: Android WebView mounts no terminal, the Bridge has no terminal methods, and staging/release keep `TERMINAL_RUNTIME_ENABLED=false`. Production remains BLOCKED pending the CLI binary, legal/store approvals, and connected-device evidence.
 
-**验收**：进程重建、多窗口和快速切换均保持单实例。
-
-**阻塞证据**：远程 CLI 策略、单实例 RuntimeSupervisor、nonce/协议握手、用户停止和有限指数退避只有 PoC/JVM 测试；G5-05 法务、渠道、组件来源、ABI、空间与真实进程树门禁未通过，所有变体正式进程自动启动保持禁用，因此 G5-06 保持 BLOCKED，详见 `test-evidence.md`。
-
-**G5 execution refresh (2026-08-10)**: G5-01 through G5-04 were rebuilt and revalidated with JDK 17, SDK 35, and the isolated terminal research build. The final `lint test assembleDebug assembleStaging assembleRelease` gate passed (`514 actionable tasks`); Android Python contracts passed (`32 tests`), frontend TypeScript/build and G5 platform tests passed (`7 tests`; combined current-worktree suite `44 tests`), Android auth/middleware regressions passed (`23 tests`), and all three APK scans passed. Runtime endpoint injection, credentialed CORS, REST short-handle authentication, and WS subprotocol authentication close the bundled-origin-to-remote-service path without placing Android credentials in Web Storage or WS URLs. Local `connectedCheck` could not run because this host has no device or AVD, but it remains a blocking emulator CI gate. G5-05 and G5-06 remain intentionally BLOCKED: the Termux candidate builds only as an isolated research AAR, the app has no dependency on it, all APKs have no Termux entries, and component/legal/store/space/device-process evidence remains incomplete.
+**G5 execution refresh (2026-08-10)**: Android Python `39 tests` and Ruff passed; the full Android gate passed with `516 actionable tasks`; Termux JVM/AndroidTest compilation and research APK build passed with `166 actionable tasks`; component, source-tree, four-APK, and two-ABI verification passed. This host has no device/AVD, so `connectedCheck` remains a blocking CI gate.
 
 ## G6 集成、发布和回滚
 
@@ -478,7 +466,6 @@
 - [ ] 长会话滚动。
 - [ ] 图谱和仪表盘降级。
 - [ ] 壁纸和粒子性能。
-- [ ] 终端持续输出。
 - [ ] 内存压力恢复。
 
 ### G6-03 兼容

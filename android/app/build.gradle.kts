@@ -8,6 +8,13 @@ import java.security.MessageDigest
 val repositoryRoot = rootProject.projectDir.parentFile
 val webFrontendDir = repositoryRoot.resolve("web/frontend")
 val projectMetadataFile = repositoryRoot.resolve("pyproject.toml")
+val mobileContractFile = repositoryRoot.resolve("config/mobile_contract.json")
+val mobileContract = groovy.json.JsonSlurper().parse(mobileContractFile) as Map<*, *>
+val uploadMaxBytes = (mobileContract["upload_max_bytes"] as Number).toLong()
+val sessionCookie = mobileContract["webview_session_cookie"] as Map<*, *>
+val sessionCookieName = sessionCookie["name"].toString()
+val sessionCookieMaxAgeSeconds = (sessionCookie["max_age_seconds"] as Number).toInt()
+val sessionCookieSameSite = sessionCookie["same_site"].toString().replaceFirstChar { it.uppercase() }
 val webDistDir = layout.buildDirectory.dir("intermediates/webDist")
 val generatedWebAssets = layout.buildDirectory.dir("generated/webAssets")
 val webAssetVersion = Regex("""(?m)^version\s*=\s*"([^"]+)"\s*$""")
@@ -15,11 +22,6 @@ val webAssetVersion = Regex("""(?m)^version\s*=\s*"([^"]+)"\s*$""")
     ?.groupValues
     ?.get(1)
     ?: error("Unable to read project version from ${projectMetadataFile.absolutePath}")
-val terminalRuntimeResearchEnabled = providers.gradleProperty("terminalRuntimeResearchEnabled")
-    .map(String::toBoolean)
-    .orElse(false)
-    .get()
-
 val webBuildInputs = objects.fileCollection()
 webBuildInputs.from(webFrontendDir.resolve("src"))
 webBuildInputs.from(webFrontendDir.resolve("public"))
@@ -30,6 +32,7 @@ webBuildInputs.from(webFrontendDir.resolve("tsconfig.json"))
 webBuildInputs.from(webFrontendDir.resolve("tsconfig.app.json"))
 webBuildInputs.from(webFrontendDir.resolve("index.html"))
 webBuildInputs.from(projectMetadataFile)
+webBuildInputs.from(mobileContractFile)
 
 val buildWebUi by tasks.registering(Exec::class) {
     workingDir(webFrontendDir)
@@ -87,6 +90,10 @@ android {
         versionName = webAssetVersion
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "WEB_ASSET_VERSION", "\"$webAssetVersion\"")
+        buildConfigField("long", "UPLOAD_MAX_BYTES", "${uploadMaxBytes}L")
+        buildConfigField("String", "SESSION_COOKIE_NAME", "\"$sessionCookieName\"")
+        buildConfigField("int", "SESSION_COOKIE_MAX_AGE_SECONDS", sessionCookieMaxAgeSeconds.toString())
+        buildConfigField("String", "SESSION_COOKIE_SAME_SITE", "\"$sessionCookieSameSite\"")
     }
 
     buildTypes {
@@ -94,7 +101,6 @@ android {
             applicationIdSuffix = ".debug"
             versionNameSuffix = "-debug"
             buildConfigField("boolean", "WEBVIEW_DEBUGGING", "true")
-            buildConfigField("boolean", "TERMINAL_RUNTIME_ENABLED", terminalRuntimeResearchEnabled.toString())
         }
         create("staging") {
             initWith(getByName("release"))
@@ -103,7 +109,6 @@ android {
             signingConfig = signingConfigs.getByName("debug")
             matchingFallbacks += listOf("release")
             buildConfigField("boolean", "WEBVIEW_DEBUGGING", "false")
-            buildConfigField("boolean", "TERMINAL_RUNTIME_ENABLED", "false")
         }
         release {
             isMinifyEnabled = true
@@ -111,7 +116,6 @@ android {
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfig = signingConfigs.getByName("debug")
             buildConfigField("boolean", "WEBVIEW_DEBUGGING", "false")
-            buildConfigField("boolean", "TERMINAL_RUNTIME_ENABLED", "false")
         }
     }
 
@@ -137,13 +141,11 @@ dependencies {
     implementation(project(":core:webcontainer"))
     implementation(project(":core:security"))
     implementation(project(":core:bridge-api"))
-    if (terminalRuntimeResearchEnabled) {
-        add("debugRuntimeOnly", project(":feature:terminal-runtime"))
-    }
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
     implementation(libs.androidx.webkit)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.androidx.test.core)
+    androidTestImplementation(libs.okhttp.mockwebserver)
 }

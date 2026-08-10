@@ -110,19 +110,20 @@ class AndroidBuildContractTest(unittest.TestCase):
         self.assertIn(".isTrusted(BuildConfig.WEB_ASSET_VERSION)", activity)
         self.assertLess(activity.index(".isTrusted(BuildConfig.WEB_ASSET_VERSION)"), activity.index("webView.loadUrl(BundledAssetLoader.START_URL)"))
 
-    def test_blocked_terminal_runtime_is_not_packaged_by_default(self):
+    def test_mobile_terminal_feature_is_absent(self):
+        settings = (ROOT / "settings.gradle.kts").read_text(encoding="utf-8")
         app_build = (ROOT / "app" / "build.gradle.kts").read_text(encoding="utf-8")
-        activity = (ROOT / "app" / "src" / "main" / "kotlin" / "com" / "xiaoda" / "agent" / "MainActivity.kt").read_text(encoding="utf-8")
+        contract = (ROOT / "core" / "bridge-api" / "src" / "main" / "kotlin" / "com" / "xiaoda" / "agent" / "bridge" / "BridgeContract.kt").read_text(encoding="utf-8")
+        workflow = (ROOT.parent / ".github" / "workflows" / "android-apk.yml").read_text(encoding="utf-8")
 
-        self.assertIn('providers.gradleProperty("terminalRuntimeResearchEnabled")', app_build)
-        self.assertIn('.orElse(false)', app_build)
-        self.assertNotIn('implementation(project(":feature:terminal-runtime"))', app_build)
-        self.assertIn('add("debugRuntimeOnly", project(":feature:terminal-runtime"))', app_build)
-        self.assertEqual(app_build.count('TERMINAL_RUNTIME_ENABLED", "false"'), 2)
-        self.assertIn('TERMINAL_RUNTIME_ENABLED", terminalRuntimeResearchEnabled.toString()', app_build)
-        self.assertIn('put("state", "disabled")', activity)
-        self.assertIn('Class.forName("com.xiaoda.agent.terminal.TermuxRuntimeComponent")', activity)
-        self.assertNotIn("TerminalRuntimeStatus", activity)
+        self.assertNotIn('include(":feature:terminal-runtime")', settings)
+        self.assertNotIn("terminalRuntimeResearchEnabled", app_build)
+        self.assertNotIn("TERMINAL_RUNTIME_ENABLED", app_build)
+        self.assertFalse((ROOT / "feature" / "terminal-runtime").exists())
+        for method in ("openTerminal", "getRuntimeStatus", "stopRuntime", "setSheetOpen"):
+            self.assertNotIn(f'"{method}"', contract)
+        for marker in ("Termux", "termux", "terminal-runtime", "ndk;22.1.7171670", "verify_termux_component.py"):
+            self.assertNotIn(marker, workflow)
 
     def test_remote_runtime_config_is_injected_before_frontend_modules(self):
         activity = (ROOT / "app" / "src" / "main" / "kotlin" / "com" / "xiaoda" / "agent" / "MainActivity.kt").read_text(encoding="utf-8")
@@ -136,6 +137,42 @@ class AndroidBuildContractTest(unittest.TestCase):
         self.assertIn("runtimeWebSocketUrl", websocket)
         self.assertIn("['xiaoda-session', token]", websocket)
         self.assertIn("isAndroidWebView() && token", websocket)
+
+    def test_upload_limit_is_shared_by_runtime_and_bridge(self):
+        activity = (ROOT / "app" / "src" / "main" / "kotlin" / "com" / "xiaoda" / "agent" / "MainActivity.kt").read_text(encoding="utf-8")
+        gradle = (ROOT / "app" / "build.gradle.kts").read_text(encoding="utf-8")
+        prompt = (ROOT.parent / "web" / "frontend" / "src" / "components" / "chat" / "PromptInput.vue").read_text(encoding="utf-8")
+
+        self.assertIn('config/mobile_contract.json', gradle)
+        self.assertIn('put("maxUploadBytes", BuildConfig.UPLOAD_MAX_BYTES)', activity)
+        self.assertIn("runtimeMaxUploadBytes()", prompt)
+        self.assertNotIn("MAX_FILE_BYTES", activity)
+
+    def test_activity_handles_notification_routes_without_terminal_sheet_bridge(self):
+        activity = (ROOT / "app" / "src" / "main" / "kotlin" / "com" / "xiaoda" / "agent" / "MainActivity.kt").read_text(encoding="utf-8")
+        contract = (ROOT / "core" / "bridge-api" / "src" / "main" / "kotlin" / "com" / "xiaoda" / "agent" / "bridge" / "BridgeContract.kt").read_text(encoding="utf-8")
+        chat_view = (ROOT.parent / "web" / "frontend" / "src" / "views" / "ChatView.vue").read_text(encoding="utf-8")
+
+        self.assertNotIn('"setSheetOpen"', contract)
+        self.assertNotIn("sheetOpen", activity)
+        self.assertNotIn("xiaoda:close-top-sheet", activity)
+        self.assertIn("BackNavigationPolicy.decide(webView.canGoBack())", activity)
+        self.assertIn("NotificationNavigationPolicy.route", activity)
+        self.assertIn("setIntent(intent)", activity)
+        self.assertIn('ChatTerminal v-if="terminalAvailable"', chat_view)
+        self.assertIn("!isMobile.value && !isAndroidWebView()", chat_view)
+
+    def test_mock_webserver_activity_integration_is_present(self):
+        catalog = (ROOT / "gradle" / "libs.versions.toml").read_text(encoding="utf-8")
+        app_script = (ROOT / "app" / "build.gradle.kts").read_text(encoding="utf-8")
+        test_file = ROOT / "app" / "src" / "androidTest" / "kotlin" / "com" / "xiaoda" / "agent" / "MainActivityMockWebServerTest.kt"
+
+        self.assertIn("mockwebserver", catalog.lower())
+        self.assertIn("androidTestImplementation(libs.okhttp.mockwebserver)", app_script)
+        self.assertTrue(test_file.is_file())
+        source = test_file.read_text(encoding="utf-8")
+        self.assertIn("ActivityScenario", source)
+        self.assertIn("MockWebServer", source)
 
 
 if __name__ == "__main__":

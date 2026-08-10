@@ -875,7 +875,7 @@ npm run build
 
 Task: G4-01
 
-Status: PASS
+Status: BLOCKED
 
 Changed files:
 
@@ -922,8 +922,11 @@ Status: PASS
 Changed files:
 
 - `web/frontend/src/components/chat/ChatTerminal.vue`
+- `web/frontend/src/components/chat/ChatTerminal.test.ts`
 - `web/ws_hub.py`
+- `tools/file_tools_v2.py`
 - `tests/test_g4_terminal_sessions.py`
+- `tests/test_g4_mobile_frontend_contract.py`
 - `web/frontend/src/i18n/zh.ts`
 - `web/frontend/src/i18n/en.ts`
 
@@ -932,21 +935,48 @@ Evidence:
 - Desktop keeps the right-side terminal; mobile uses a draggable bottom sheet with 50 and 90 percent snap points.
 - VisualViewport, orientation, and safe-area changes only fit/resize the current xterm session and do not regenerate its SID.
 - `v-show` preserves the xterm DOM and multiple sessions; closing an active session requires confirmation.
-- A real component unmount sends terminal kill; WebSocket disconnect remains the server-side fallback.
+- Component unmount sends `terminal_kill`, disconnect marks live sessions unavailable, and server connection cleanup remains the process-reaping fallback.
+- Reconnect removes disconnected tabs after the server has reaped their connection-owned processes, preventing permanently dead local sessions.
+- The sheet traps focus, closes with Escape, restores focus to its opener, exposes tab/tablist/tabpanel semantics, announces status changes, and provides radio semantics for shell selection.
 - The server validates SID format, connection ownership, shell allowlist, input bytes, terminal dimensions, and per-connection/global session limits.
-- Windows recursively terminates the process tree with psutil; Unix terminates the PTY process group and reaps it with waitpid.
+- Pending reservations prevent duplicate starts and close start/kill/disconnect races; committed sessions are reclaimed if reader initialization fails.
+- Terminal input writes and process-tree cleanup run outside the WebSocket event loop.
+- Windows recursively terminates the process tree with `taskkill /PID /T /F` and checks its return code; Unix terminates the saved PTY process group and reaps it with `waitpid`.
+- Agent-approved `shell_command` execution no longer reuses an arbitrary interactive terminal session, keeping the approval path separate from the free-form terminal trust domain.
 
 Commands:
 
 ```powershell
-py -3.12 -m pytest tests/test_g4_terminal_sessions.py tests/test_ws_broadcast_backpressure.py tests/test_ws_heartbeat.py -q
+python -m pytest tests/test_g4_terminal_sessions.py tests/test_g4_mobile_frontend_contract.py -q --tb=short
+cd web/frontend
+npm test
+npm run typecheck
+npm run build
+cd ../..
+python -m ruff check web/ws_hub.py tools/file_tools_v2.py tests/test_g4_terminal_sessions.py tests/test_g4_mobile_frontend_contract.py
+git diff --check
 ```
 
 Results:
 
-- Terminal lifecycle/security: `4 passed`.
-- WebSocket regression: `5 passed`.
-- Artifact: `output/playwright/terminal-sheet-390x844.png`.
+- Terminal lifecycle/security and frontend contracts: `21 passed, 2 warnings`.
+- Frontend full suite: `10 test files passed, 44 tests passed`.
+- Focused terminal behavior suite after reconnect/viewport/confirmation coverage: `1 test file passed, 7 tests passed`.
+- TypeScript `vue-tsc --noEmit`: PASS.
+- Ruff: `All checks passed!`.
+- Vite production build: `4013 modules transformed`, `built in 30.95s`, exit code `0`.
+- `git diff --check`: PASS.
+
+Acceptance exceptions and remaining risk:
+
+- The user explicitly prohibited browser use, so no browser screenshot, real Android IME, or TalkBack evidence is claimed for this closure.
+- The current Windows environment validates the saved Unix process-group contract and `killpg` calls but cannot run a real Unix grandchild-process integration test.
+- TRM-002 remains blocked because the current suite mocks process termination calls instead of starting and verifying a real child/grandchild tree for explicit close and WebSocket disconnect.
+- Pytest reports unknown `timeout` and `timeout_method` configuration warnings because the timeout plugin is unavailable in this environment; the tests themselves pass.
+- Terminal output still shares the existing WebSocket send queue; independent byte backpressure and strict control-event ordering remain follow-up hardening work.
+- Windows tree ownership relies on `taskkill /T /F`; no Job Object is introduced in G4-02.
+- Vite retains the pre-existing large-chunk warning.
+- G4-02 must not be promoted to PASS until real process-tree integration evidence exists on the supported platforms or a formal acceptance exception changes TRM-002.
 
 ### G4-03 Wallpaper data extension
 
@@ -1164,3 +1194,15 @@ Remaining P0 blockers:
 - Legal license obligations and target-store policy review have no written approval.
 - Installed/unpacked size and real device process-tree cleanup still require approved runtime packaging and device evidence.
 - Consequently G5-05 and G5-06 remain blocked, `canStart=false`, `TERMINAL_RUNTIME_ENABLED=false` for debug/staging/release, and the application APKs do not link or package the terminal runtime module.
+
+
+## G5-05/G5-06 Termux research runtime rerun (2026-08-10)
+
+- Official component: `termux/termux-app` `terminal-emulator` v0.118.3, commit `5b657c6adf4304e5198951ce815fe0205dcac29c`; source archive SHA-256 `debd53a911c30f578c5b3600e5609a22b576491b20ce632e155457596ee1d291`.
+- Android Python contracts: `39 tests` PASS; Ruff PASS.
+- `lint test assembleDebug assembleStaging assembleRelease`: PASS, `516 actionable tasks`.
+- Termux JVM tests, AAR, AndroidTest APK, and opt-in research APK: PASS, `166 actionable tasks`; component and source/four-APK scans PASS.
+- AAR: 117,513 bytes, SHA-256 `66bba183811793c5b73c77883bffe6b0647663efd2a1601d14a7e4153a9339fe`.
+- arm64 library: 9,008 bytes, SHA-256 `007b5ea44c19c89801830f0bbb76460736bd4beb7ec1b11420ea0a6843e5918d`; x86_64 library: 9,248 bytes, SHA-256 `024149e020c3f86edb0f3b483fd9a980019d359506eabe681d0fafae14531a7b`.
+- Research APK: 10,243,397 bytes, SHA-256 `0267da0b083cd1073386c9f0563d492973eac8e8ecde21b2b763febc8f09c002`; default debug/staging/release contain no Termux library.
+- Remaining blockers: no local device/AVD; legal, store, installed-size, real process-tree, and app-private native remote CLI evidence are incomplete.
