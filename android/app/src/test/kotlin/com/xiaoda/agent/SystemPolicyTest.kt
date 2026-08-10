@@ -7,10 +7,9 @@ import org.junit.Test
 
 class SystemPolicyTest {
     @Test
-    fun `back navigation prioritizes sheet then web history then activity`() {
-        assertEquals(BackAction.CLOSE_SHEET, BackNavigationPolicy.decide(true, true))
-        assertEquals(BackAction.GO_BACK, BackNavigationPolicy.decide(false, true))
-        assertEquals(BackAction.FINISH, BackNavigationPolicy.decide(false, false))
+    fun `back navigation uses web history before finishing activity`() {
+        assertEquals(BackAction.GO_BACK, BackNavigationPolicy.decide(true))
+        assertEquals(BackAction.FINISH, BackNavigationPolicy.decide(false))
     }
 
     @Test
@@ -71,5 +70,20 @@ class SystemPolicyTest {
         assertEquals("/", DeepLinkPolicy.route("xiaoda://app"))
         assertEquals(null, DeepLinkPolicy.route("xiaoda://evil/settings/system"))
         assertEquals(null, DeepLinkPolicy.route("https://example.com"))
+    }
+
+    @Test
+    fun `notification navigation accepts only explicit safe routes`() {
+        assertEquals("/settings/system", NotificationNavigationPolicy.route(NotificationNavigationPolicy.ACTION_OPEN_ROUTE, "/settings/system"))
+        assertEquals(null, NotificationNavigationPolicy.route("other", "/settings/system"))
+        assertEquals(null, NotificationNavigationPolicy.route(NotificationNavigationPolicy.ACTION_OPEN_ROUTE, "/../secret"))
+    }
+
+
+    @Test
+    fun `notification routes require the private action and safe path`() {
+        assertEquals("/chat", NotificationNavigationPolicy.route(NotificationNavigationPolicy.ACTION_OPEN_ROUTE, "/chat"))
+        assertEquals(null, NotificationNavigationPolicy.route("android.intent.action.VIEW", "/chat"))
+        assertEquals(null, NotificationNavigationPolicy.route(NotificationNavigationPolicy.ACTION_OPEN_ROUTE, "/../settings"))
     }
 }

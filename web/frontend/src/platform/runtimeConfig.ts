@@ -1,6 +1,7 @@
 export interface RuntimeConfig {
   apiBase: string
   wsUrl: string
+  maxUploadBytes: number
 }
 
 declare global {
@@ -29,4 +30,11 @@ export function runtimeWebSocketUrl(): string {
   if (configured) return configured
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
   return `${protocol}//${location.host}/ws`
+}
+
+export function runtimeMaxUploadBytes(): number {
+  const configured = window.__XIAODA_RUNTIME_CONFIG__?.maxUploadBytes
+  return typeof configured === 'number' && Number.isSafeInteger(configured) && configured > 0 && configured <= 100 * 1024 * 1024
+    ? configured
+    : 20 * 1024 * 1024
 }

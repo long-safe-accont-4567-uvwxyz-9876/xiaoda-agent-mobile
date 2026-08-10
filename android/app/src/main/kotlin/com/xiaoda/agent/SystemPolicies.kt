@@ -2,14 +2,10 @@ package com.xiaoda.agent
 
 import java.net.URI
 
-enum class BackAction { CLOSE_SHEET, GO_BACK, FINISH }
+enum class BackAction { GO_BACK, FINISH }
 
 object BackNavigationPolicy {
-    fun decide(sheetOpen: Boolean, canGoBack: Boolean): BackAction = when {
-        sheetOpen -> BackAction.CLOSE_SHEET
-        canGoBack -> BackAction.GO_BACK
-        else -> BackAction.FINISH
-    }
+    fun decide(canGoBack: Boolean): BackAction = if (canGoBack) BackAction.GO_BACK else BackAction.FINISH
 }
 
 data class ConnectionLifecycleState(val foreground: Boolean, val networkAvailable: Boolean)
@@ -38,10 +34,21 @@ class NetworkCallbackGeneration {
     fun isCurrent(generation: Long): Boolean = current == generation
 }
 
+private fun safeRoutePath(value: String?): String? = value
+    ?.takeIf { it.startsWith("/") && !it.contains("..") && !it.contains('\\') }
+
 object DeepLinkPolicy {
     fun route(value: String): String? {
         val uri = runCatching { URI(value) }.getOrNull() ?: return null
-        if (uri.scheme != "xiaoda" || uri.host != "app") return null
-        return uri.path?.takeIf { it.startsWith("/") && !it.contains("..") } ?: "/"
+        if (uri.scheme != "xiaoda" || uri.host != "app" || uri.rawQuery != null || uri.rawFragment != null) return null
+        return safeRoutePath(uri.path?.takeIf(String::isNotEmpty) ?: "/")
     }
+}
+
+object NotificationNavigationPolicy {
+    const val ACTION_OPEN_ROUTE = "com.xiaoda.agent.OPEN_ROUTE"
+    const val EXTRA_ROUTE = "xiaoda.route"
+
+    fun route(action: String?, requestedRoute: String?): String? =
+        requestedRoute?.let(::safeRoutePath).takeIf { action == ACTION_OPEN_ROUTE }
 }

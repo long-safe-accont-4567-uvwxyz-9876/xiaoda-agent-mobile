@@ -9,8 +9,5 @@ object BridgeContract {
         "clearSession",
         "pickFile",
         "shareText",
-        "openTerminal",
-        "getRuntimeStatus",
-        "stopRuntime",
     )
 }

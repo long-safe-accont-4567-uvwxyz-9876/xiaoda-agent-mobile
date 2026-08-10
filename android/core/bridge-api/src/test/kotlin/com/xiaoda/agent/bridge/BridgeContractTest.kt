@@ -9,8 +9,8 @@ class BridgeContractTest {
     fun approvedBridgeSurfaceMatchesTheArchitectureAllowlist() {
         val methods = BridgeContract.allowedMethods
 
-        assertTrue(methods.containsAll(setOf("getInsets", "getNetworkStatus", "authenticate", "restoreSession", "clearSession", "pickFile", "shareText", "openTerminal", "getRuntimeStatus", "stopRuntime")))
-        assertTrue(methods.size == 10)
+        assertTrue(methods.containsAll(setOf("getInsets", "getNetworkStatus", "authenticate", "restoreSession", "clearSession", "pickFile", "shareText")))
+        assertTrue(methods.size == 7)
     }
 
     @Test
@@ -21,5 +21,9 @@ class BridgeContractTest {
         assertFalse("readFile" in methods)
         assertFalse("openIntent" in methods)
         assertFalse("setSecureToken" in methods)
+        assertFalse("setSheetOpen" in methods)
+        assertFalse("openTerminal" in methods)
+        assertFalse("getRuntimeStatus" in methods)
+        assertFalse("stopRuntime" in methods)
     }
 }

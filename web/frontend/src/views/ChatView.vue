@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, nextTick, watch, onMounted, onBeforeUnmount, onDeactivated, computed, inject, reactive } from 'vue'
+import { ref, nextTick, watch, onMounted, onBeforeUnmount, onActivated, onDeactivated, computed, inject, reactive } from 'vue'
 import type { Ref } from 'vue'
 import { NDrawer, NDrawerContent, NButton, NPopconfirm, useMessage } from 'naive-ui'
 import { useChatStore } from '../stores/chat'
@@ -18,6 +18,9 @@ import ModelSelector from '../components/chat/ModelSelector.vue'
 import CmdConfirmCard from '../components/workspace/CmdConfirmCard.vue'
 import { useWorkspaceStore } from '../stores/workspace'
 import { t } from '../i18n'
+import { trapFocus } from '../utils/focusTrap'
+import { useResponsiveShell } from '../composables/useResponsiveShell'
+import { isAndroidWebView } from '../platform/nativeBridge'
 
 defineOptions({ name: 'ChatView' })
 
@@ -27,6 +30,8 @@ const ui = useUiStore()
 const ws = useWorkspaceStore()
 const message = useMessage()
 const particles = inject<Ref<any>>('particles')
+const { isMobile } = useResponsiveShell()
+const terminalAvailable = computed(() => !isMobile.value && !isAndroidWebView())
 
 const inputText = ref('')
 const messagesEl = ref<HTMLElement | null>(null)
@@ -54,9 +59,9 @@ watch(() => chat.sessionId, () => { imgSettled.clear() })
 const showPalette = computed(() => inputText.value.startsWith('/') && !inputText.value.includes(' '))
 
 function onGlobalKeydown(e: KeyboardEvent) {
-  if (lightboxUrl.value && e.key === 'Escape') {
-    lightboxUrl.value = ''
-  }
+  if (!lightboxUrl.value) return
+  if (e.key === 'Escape') lightboxUrl.value = ''
+  else if (lightboxRef.value) trapFocus(lightboxRef.value, e)
 }
 
 // 命令确认请求 WS 处理：收到后端推送，设置 pendingCmdConfirm 触发卡片渲染
@@ -74,9 +79,21 @@ function onCmdConfirmRequest(data: any) {
   }
 }
 
-onMounted(async () => {
+function activateRouteEffects() {
   document.addEventListener('keydown', onGlobalKeydown)
   getWsClient().on('cmd_confirm_request', onCmdConfirmRequest)
+}
+
+function deactivateRouteEffects() {
+  document.removeEventListener('keydown', onGlobalKeydown)
+  getWsClient().off('cmd_confirm_request', onCmdConfirmRequest)
+  lightboxUrl.value = ''
+  showSessions.value = false
+  if (audioEl) { audioEl.pause(); audioEl.onended = null; audioEl.onerror = null; audioEl.src = ''; audioEl = null }
+  playingUrl.value = ''
+}
+
+onMounted(async () => {
   try {
     // 后端命令名自带 "/" 前缀，统一去掉，避免拼接成 "//cmd"
     const raw = await api.getCommands()
@@ -84,17 +101,9 @@ onMounted(async () => {
   } catch { /* 忽略 */ }
 })
 
-onBeforeUnmount(() => {
-  document.removeEventListener('keydown', onGlobalKeydown)
-  getWsClient().off('cmd_confirm_request', onCmdConfirmRequest)
-  if (audioEl) { audioEl.pause(); audioEl.onended = null; audioEl.onerror = null; audioEl.src = ''; audioEl = null }
-  playingUrl.value = ''
-})
-
-onDeactivated(() => {
-  if (audioEl) { audioEl.pause(); audioEl.onended = null; audioEl.onerror = null; audioEl.src = ''; audioEl = null }
-  playingUrl.value = ''
-})
+onActivated(activateRouteEffects)
+onDeactivated(deactivateRouteEffects)
+onBeforeUnmount(deactivateRouteEffects)
 
 watch(() => chat.messages.length, () => {
   const el = messagesEl.value
@@ -249,10 +258,7 @@ async function copyText(text: string) {
 
 function resend(msg: { content: string; imageUrl?: string }) {
   if (chat.isProcessing) return
-  let text = msg.content
-  const imageUrl = msg.imageUrl
-  if (imageUrl) text += `\n[Image: ${imageUrl}]`
-  chat.sendMessage(text, imageUrl)
+  chat.sendMessage(msg.content, { imageUrl: msg.imageUrl })
 }
 
 function clearAll() {
@@ -430,7 +436,7 @@ const emotionColors: Record<string, string> = {
     </n-drawer>
 
     <!-- 小妲终端（右侧浮动面板，Teleport to body） -->
-    <ChatTerminal />
+    <ChatTerminal v-if="terminalAvailable" />
   </div>
 </template>
 

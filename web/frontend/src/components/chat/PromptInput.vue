@@ -3,6 +3,7 @@ import { ref, computed, nextTick, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useMessage } from 'naive-ui'
 import { api } from '../../api'
 import { getNativeBridge, isAndroidWebView } from '../../platform/nativeBridge'
+import { runtimeMaxUploadBytes } from '../../platform/runtimeConfig'
 import { t } from '../../i18n'
 import WorkingDirSelector from '../workspace/WorkingDirSelector.vue'
 
@@ -109,7 +110,7 @@ function toggleThink() {
 // 图片上传
 async function triggerFileInput() {
   if (isAndroidWebView()) {
-    const file = await getNativeBridge().pickFile('*/*', 20 * 1024 * 1024)
+    const file = await getNativeBridge().pickFile('*/*', runtimeMaxUploadBytes())
     if (file) await uploadFile(file)
     return
   }
