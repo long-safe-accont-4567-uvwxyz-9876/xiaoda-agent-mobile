@@ -55,6 +55,18 @@ logs/
 xiaoda_agent.egg-info/
 .worktrees/
 
+# Android local state and build outputs
+android/.gradle/
+android/local.properties
+android/**/build/
+android/**/*.jks
+android/**/*.keystore
+android/**/*.p12
+android/**/*.pfx
+android/**/*.pem
+android/**/*.der
+android/**/*.key
+
 # 测试泄漏到仓库根目录的 mock 产物（MagicMock 的 db_path 残留）
 <MagicMock*
 

@@ -2,6 +2,7 @@
 import { ref, computed, nextTick, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useMessage } from 'naive-ui'
 import { api } from '../../api'
+import { getNativeBridge, isAndroidWebView } from '../../platform/nativeBridge'
 import { t } from '../../i18n'
 import WorkingDirSelector from '../workspace/WorkingDirSelector.vue'
 
@@ -106,7 +107,12 @@ function toggleThink() {
 }
 
 // 图片上传
-function triggerFileInput() {
+async function triggerFileInput() {
+  if (isAndroidWebView()) {
+    const file = await getNativeBridge().pickFile('*/*', 20 * 1024 * 1024)
+    if (file) await uploadFile(file)
+    return
+  }
   fileInputRef.value?.click()
 }
 

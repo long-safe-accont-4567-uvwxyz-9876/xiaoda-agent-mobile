@@ -1,6 +1,8 @@
 import { t } from '../i18n'
+import { bearerToken, storeBrowserSession } from '../platform/authSession'
+import { runtimeApiBase } from '../platform/runtimeConfig'
 
-const BASE = '/api/v1'
+const BASE = runtimeApiBase()
 
 interface ApiEnvelope<T> {
   ok: boolean
@@ -9,19 +11,19 @@ interface ApiEnvelope<T> {
 }
 
 async function request<T>(path: string, options?: RequestInit, confirm = false): Promise<T> {
-  const token = localStorage.getItem('token')
+  const token = bearerToken()
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
     ...(confirm ? { 'X-Confirm': 'yes' } : {}),
   }
-  const res = await fetch(`${BASE}${path}`, { ...options, headers }).catch(e => {
+  const res = await fetch(`${BASE}${path}`, { ...options, credentials: 'include', headers }).catch(e => {
     // 路由切换时浏览器中止 fetch 产生 AbortError，重新抛出以便调用方静默处理
     if (e?.name === 'AbortError') throw e
     throw new Error(e?.message || 'Network error')
   })
   if (res.status === 401) {
-    localStorage.removeItem('token')
+    storeBrowserSession('', 0)
     // token 失效/未登录时一律引导到登录页（无密码环境同样需要点击"进入"，
     // 不做静默空密码重登——那样会绕过登录页）。设置页保存场景的 401 已由
     // 后端 profile 端点免认证（_profile_endpoint_access）根治，无需前端兜底。
@@ -31,7 +33,7 @@ async function request<T>(path: string, options?: RequestInit, confirm = false):
   // 滑动续期：后端在响应头返回新 token 时自动替换本地存储
   const newToken = res.headers.get('X-New-Token')
   if (newToken) {
-    localStorage.setItem('token', newToken)
+    storeBrowserSession(newToken, Number(res.headers.get('X-New-Token-Expiry')) || 0)
   }
   let body: ApiEnvelope<T>
   try {
@@ -106,8 +108,9 @@ export const api = {
     post<{ audio_url: string; cached: boolean }>('/media/tts', { text, voice, style }),
 
   uploadVoiceRef: async (agent: string, formData: FormData) => {
-    const token = localStorage.getItem('token')
+    const token = bearerToken()
     const res = await fetch(`${BASE}/media/tts/voices/${agent}`, {
+      credentials: 'include',
       method: 'POST',
       headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
       body: formData,
@@ -120,7 +123,7 @@ export const api = {
   // Setup wizard APIs（首次运行时后端免认证；非首次需 token，统一走 request()
   // 以自动处理 X-New-Token 滑动续期，token 失效时引导重新登录而非裸 401 报错）
   getSetupFirstRun: () => {
-    return fetch(`${BASE}/setup/first-run`).then(r => r.json()).then(b => b.data)
+    return fetch(`${BASE}/setup/first-run`, { credentials: 'include' }).then(r => r.json()).then(b => b.data)
   },
 
   getSetupKeys: () => get<{ keys: any[] }>('/setup/keys'),
@@ -149,8 +152,9 @@ export const api = {
     formData.append('file', file)
     formData.append('description', description)
     formData.append('emotion', emotion)
-    const token = localStorage.getItem('token')
+    const token = bearerToken()
     const res = await fetch(`${BASE}/agents/${agentName}/stickers`, {
+      credentials: 'include',
       method: 'POST',
       headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
       body: formData,
@@ -166,8 +170,9 @@ export const api = {
   uploadImage: async (file: File) => {
     const formData = new FormData()
     formData.append('file', file)
-    const token = localStorage.getItem('token')
+    const token = bearerToken()
     const res = await fetch(`${BASE}/chat/upload-image`, {
+      credentials: 'include',
       method: 'POST',
       headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
       body: formData,
@@ -182,8 +187,9 @@ export const api = {
   uploadDoc: async (file: File) => {
     const formData = new FormData()
     formData.append('file', file)
-    const token = localStorage.getItem('token')
+    const token = bearerToken()
     const res = await fetch(`${BASE}/chat/upload-doc`, {
+      credentials: 'include',
       method: 'POST',
       headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
       body: formData,
@@ -196,8 +202,9 @@ export const api = {
   speechToText: async (file: File) => {
     const formData = new FormData()
     formData.append('file', file)
-    const token = localStorage.getItem('token')
+    const token = bearerToken()
     const res = await fetch(`${BASE}/chat/speech-to-text`, {
+      credentials: 'include',
       method: 'POST',
       headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
       body: formData,
@@ -240,8 +247,9 @@ export function exportSessionUrl(sessionId: string): string {
 
 /** 通过 POST + Authorization header 安全下载会话导出 */
 export async function exportSessionDownload(sessionId: string): Promise<void> {
-  const token = localStorage.getItem('token')
+  const token = bearerToken()
   const res = await fetch(`${BASE}/sessions/${sessionId}/export`, {
+    credentials: 'include',
     method: 'POST',
     headers: {
       ...(token ? { Authorization: `Bearer ${token}` } : {}),

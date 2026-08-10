@@ -503,13 +503,21 @@ async def process_and_serialize(core: Any, text: str, session_id: str,
 
 @router.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket, token: str = "") -> None:
-    # 先验证 token 再 accept，防止无 token 连接耗尽资源
-    from web.routers.auth import _validate_token
+    # Validate before accept. Android sends its five-minute handle as a
+    # WebSocket subprotocol so credentials never enter the URL.
+    from web.routers.auth import _validate_token, resolve_webview_session
+    selected_subprotocol = None
+    offered = [item.strip() for item in ws.headers.get("sec-websocket-protocol", "").split(",") if item.strip()]
+    if len(offered) == 2 and offered[0] == "xiaoda-session":
+        token = resolve_webview_session(offered[1]) or ""
+        selected_subprotocol = "xiaoda-session"
+    elif not token:
+        token = resolve_webview_session(ws.cookies.get("xiaoda_session", "")) or ""
     if not token or not _validate_token(token):
         await ws.close(code=1008, reason="Unauthorized")
         return
 
-    await ws.accept()
+    await ws.accept(subprotocol=selected_subprotocol)
 
     try:
         conn_id = manager.register(ws)

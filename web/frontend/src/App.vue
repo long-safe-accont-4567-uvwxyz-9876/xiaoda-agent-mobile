@@ -101,6 +101,7 @@ function measureRuntimeFps(frameCount = 90, lowFps = 30): Promise<boolean> {
 }
 
 onMounted(async () => {
+  await auth.restore()
   // 1. 首次运行检测：API Key 未配置 → 跳转 setup 向导
   //    API Key 已配置但用户资料未完成 → 跳转资料编辑页
   try {
@@ -218,6 +219,7 @@ const themeOverrides: GlobalThemeOverrides = {
 @import './styles/theme.css';
 @import './styles/sumeru-tokens.css';
 @import './styles/components.css';
+@import './styles/mobile-pages.css';
 
 * {
   margin: 0;

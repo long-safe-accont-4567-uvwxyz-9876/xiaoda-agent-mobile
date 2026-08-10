@@ -8,12 +8,13 @@ import hashlib
 import hmac
 import base64
 import secrets
+from dataclasses import dataclass
 from collections import OrderedDict
 from pathlib import Path
 from threading import Lock
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request, Depends
+from fastapi import APIRouter, HTTPException, Request, Depends, Response
 from loguru import logger
 
 from web.schemas import Envelope, LoginRequest, LoginResponse
@@ -42,6 +43,7 @@ def _trust_forwarded_for() -> bool:
 _tokens: OrderedDict[str, float] = OrderedDict()
 _TOKENS_MAX_SIZE = 1000
 _rate_limit: OrderedDict[str, tuple[int, float]] = OrderedDict()
+_webview_sessions: OrderedDict[str, tuple[str, float]] = OrderedDict()
 _RATE_LIMIT_MAX_SIZE = 1000
 
 _SECRET: str = ""
@@ -50,9 +52,46 @@ _secret_lock = Lock()
 _revoked_lock = Lock()
 _tokens_lock = Lock()
 _rate_limit_lock = Lock()
+_webview_sessions_lock = Lock()
 # 已撤销 token 内存缓存，避免每次请求都读文件
 _revoked_cache: set[str] = set()
 _revoked_cache_mtime: float = 0.0
+
+
+@dataclass(frozen=True)
+class WebViewSession:
+    handle: str
+    expires_at: float
+
+
+def _issue_webview_session(token: str, lifetime_seconds: int = 300) -> WebViewSession:
+    if not _validate_token(token):
+        raise ValueError("invalid_token")
+    now = time.time()
+    handle = secrets.token_urlsafe(32)
+    expires_at = now + lifetime_seconds
+    with _webview_sessions_lock:
+        expired = [key for key, (_, expiry) in _webview_sessions.items() if expiry <= now]
+        for key in expired:
+            _webview_sessions.pop(key, None)
+        _webview_sessions[handle] = (token, expires_at)
+        while len(_webview_sessions) > _TOKENS_MAX_SIZE:
+            _webview_sessions.popitem(last=False)
+    return WebViewSession(handle, expires_at)
+
+
+def resolve_webview_session(handle: str) -> str | None:
+    if not handle:
+        return None
+    with _webview_sessions_lock:
+        value = _webview_sessions.get(handle)
+        if value is None:
+            return None
+        token, expires_at = value
+        if expires_at <= time.time():
+            _webview_sessions.pop(handle, None)
+            return None
+    return token if _validate_token(token) else None
 
 
 def _get_secret_path() -> Path:
@@ -264,9 +303,13 @@ async def get_current_user(request: Request) -> str:
     由中间件写入响应头 X-New-Token / X-New-Token-Expiry。
     """
     auth = request.headers.get("Authorization", "")
-    if not auth.startswith("Bearer "):
+    credential = auth[7:] if auth.startswith("Bearer ") else ""
+    if credential:
+        token = resolve_webview_session(credential) or credential
+    else:
+        token = resolve_webview_session(request.cookies.get("xiaoda_session", ""))
+    if not token:
         raise HTTPException(401, "Missing or invalid Authorization header")
-    token = auth[7:]
     if not _validate_token(token):
         raise HTTPException(401, "Invalid or expired token")
     # 滑动续期：剩余不到1天时换新
@@ -333,6 +376,25 @@ async def login(req: LoginRequest, request: Request) -> Any:
         _rate_limit.pop(client_ip, None)
     token, expiry = _issue_token()
     return Envelope(data=LoginResponse(token=token, expires_at=expiry))
+
+
+@router.post("/auth/webview-session", response_model=Envelope[dict[str, Any]])
+async def create_webview_session(response: Response, request: Request, user_id: str = Depends(get_current_user)) -> Any:
+    auth = request.headers.get("Authorization", "")
+    token = auth[7:] if auth.startswith("Bearer ") else ""
+    if not token:
+        raise HTTPException(401, "Bearer token required")
+    session = _issue_webview_session(token)
+    response.set_cookie(
+        "xiaoda_session",
+        session.handle,
+        max_age=300,
+        httponly=True,
+        secure=True,
+        samesite="strict",
+        path="/",
+    )
+    return Envelope(data={"handle": session.handle, "expires_at": session.expires_at})
 
 
 @router.post("/auth/logout", response_model=Envelope[None])

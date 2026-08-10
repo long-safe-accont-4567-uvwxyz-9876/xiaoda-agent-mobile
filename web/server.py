@@ -932,6 +932,16 @@ def create_app() -> FastAPI:
         _ver = "0.4.95"
     app = FastAPI(title="Xiaoda Agent WebUI", version=_ver, lifespan=lifespan)
 
+    from fastapi.middleware.cors import CORSMiddleware
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["https://appassets.androidplatform.net"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+        expose_headers=["X-New-Token", "X-New-Token-Expiry"],
+    )
+
     # 速率限制中间件（三级: 全局/用户/写端点, 防 DDoS/滥用）
     # 在路由之前注册, 尽早拦截超限请求; 限制值可通过环境变量覆盖
     # F7: 令牌桶状态持久化到 SQLite, 进程重启后恢复 (避免重启即放行)

@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">Xiaoda Agent</string>
+    <string name="web_error">Xiaoda UI could not be loaded.\nVersion: %1$s\nDiagnostic ID: %2$s</string>
+</resources>

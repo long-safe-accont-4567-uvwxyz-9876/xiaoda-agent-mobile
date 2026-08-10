@@ -3,6 +3,10 @@ export interface WsEvent {
   [key: string]: unknown
 }
 
+import { bearerToken } from '../platform/authSession'
+import { isAndroidWebView } from '../platform/nativeBridge'
+import { runtimeWebSocketUrl } from '../platform/runtimeConfig'
+
 export class WsClient {
   private ws: WebSocket | null = null
   private reconnectAttempts = 0
@@ -22,7 +26,7 @@ export class WsClient {
   // 是否处于"已断开、正在后台重连"状态（供三态连接灯区分 绿/黄/红）
   get reconnecting() { return this._reconnecting }
 
-  connect(token: string) {
+  connect(token = bearerToken()) {
     // 幂等：已连接且有效时，不重复断开重连（避免登录时 auth.login + AppLayout 重复调用导致竞态）
     if (this.ws && this.ws.readyState === WebSocket.OPEN && this.connected) {
       return
@@ -49,8 +53,8 @@ export class WsClient {
   // connect() 会重置 _intentionalDisconnect/reconnectAttempts，导致
   // 重连失败时 onclose 误判为主动断开而放弃重试，且指数退避失效。
   private _open(token: string) {
-    const wsUrl = `${this.url}?token=${token}`
-    this.ws = new WebSocket(wsUrl)
+    if (isAndroidWebView() && token) this.ws = new WebSocket(this.url, ['xiaoda-session', token])
+    else this.ws = new WebSocket(token ? `${this.url}?token=${encodeURIComponent(token)}` : this.url)
 
     this.ws.onopen = () => {
       this.connected = true
@@ -166,8 +170,8 @@ export class WsClient {
     this.reconnectAttempts++
     this.reconnectTimer = setTimeout(() => {
       // 从 localStorage 读取最新 token，避免使用过期闭包 token
-      const freshToken = localStorage.getItem('token')
-      if (freshToken) {
+      const freshToken = bearerToken()
+      if (freshToken || document.cookie.includes('xiaoda_session=')) {
         // 直接 _open 而非 connect()：保持 _reconnecting=true（黄灯持续）、
         // 保留 reconnectAttempts 使指数退避连续；重连失败时 onclose 会再次调度，
         // 形成真正的"无限重连"链路。
@@ -185,9 +189,6 @@ export class WsClient {
 let instance: WsClient | null = null
 
 export function getWsClient(): WsClient {
-  if (!instance) {
-    const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
-    instance = new WsClient(`${protocol}//${location.host}/ws`)
-  }
+  if (!instance) instance = new WsClient(runtimeWebSocketUrl())
   return instance
 }
