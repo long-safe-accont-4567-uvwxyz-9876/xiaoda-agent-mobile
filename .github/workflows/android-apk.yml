@@ -43,6 +43,9 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      - name: Install frozen Android NDK
+        run: sdkmanager "ndk;22.1.7171670"
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
@@ -60,6 +63,21 @@ jobs:
       - name: Lint, test, and assemble variants
         run: ./gradlew lint test assembleDebug assembleStaging assembleRelease
 
+      - name: Build opt-in Termux research APK
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk app/build/outputs/apk/debug/app-debug-default.apk
+          ./gradlew :feature:terminal-runtime:assembleDebug :feature:terminal-runtime:assembleDebugAndroidTest :app:assembleDebug -PterminalRuntimeResearchEnabled=true
+          mkdir -p app/build/outputs/apk/research
+          cp app/build/outputs/apk/debug/app-debug.apk app/build/outputs/apk/research/app-debug-termux-research.apk
+          mv app/build/outputs/apk/debug/app-debug-default.apk app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Verify frozen Termux component
+        run: >-
+          python scripts/verify_termux_component.py
+          --source-root feature/terminal-runtime
+          --archive feature/terminal-runtime/build/outputs/aar/terminal-runtime-debug.aar
+          --archive app/build/outputs/apk/research/app-debug-termux-research.apk
+
       - name: Run connected Android tests
         uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -74,6 +92,7 @@ jobs:
           app/build/outputs/apk/debug/app-debug.apk
           app/build/outputs/apk/staging/app-staging.apk
           app/build/outputs/apk/release/app-release.apk
+          app/build/outputs/apk/research/app-debug-termux-research.apk
 
       - name: Verify bundled web assets
         run: python scripts/verify_web_assets.py app/build/generated/webAssets "$(python ../scripts/project_version.py)"
@@ -87,6 +106,16 @@ jobs:
           name: xiaoda-android-debug-${{ github.sha }}
           path: |
             android/app/build/outputs/apk/debug/app-debug.apk
+            android/app/build/outputs/apk/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload Termux research APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: xiaoda-android-termux-research-${{ github.sha }}
+          path: |
+            android/app/build/outputs/apk/research/app-debug-termux-research.apk
             android/app/build/outputs/apk/SHA256SUMS
           if-no-files-found: error
           retention-days: 14
