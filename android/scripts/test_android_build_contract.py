@@ -55,6 +55,7 @@ class AndroidBuildContractTest(unittest.TestCase):
         instrumentation_test = ROOT / "app" / "src" / "androidTest" / "kotlin" / "com" / "xiaoda" / "agent" / "AndroidSecurityIntegrationTest.kt"
 
         self.assertIn('testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"', app_script)
+        self.assertIn("androidTestImplementation(libs.androidx.test.runner)", app_script)
         self.assertIn("connectedCheck", workflow)
         self.assertIn("android-emulator-runner", workflow)
         self.assertTrue(instrumentation_test.is_file())
