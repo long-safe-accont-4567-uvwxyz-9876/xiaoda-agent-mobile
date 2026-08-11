@@ -2,6 +2,7 @@ package com.xiaoda.agent.bridge
 
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
+import java.util.zip.ZipInputStream
 import java.net.URI
 import java.nio.charset.CodingErrorAction
 
@@ -16,15 +17,11 @@ class BridgeRequestValidator(private val trustedOrigin: String, private val maxF
     }
     fun inspectSelectedFile(scheme: String?, reportedType: String?, requestedType: String, bytes: ByteArray, requestedMaxBytes: Long): SelectedFileInspection? {
         if (scheme != "content" || bytes.size.toLong() > requestedMaxBytes || !isFileRequestValid(requestedType, requestedMaxBytes)) return null
-        val detectedType = detectMimeType(bytes) ?: return null
+        val detectedType = detectMimeType(bytes, reportedType) ?: return null
         if (!mimeMatches(requestedType, detectedType)) return null
         return SelectedFileInspection(detectedType, bytes.size.toLong(), bytes)
     }
     fun isShareTextValid(text: String): Boolean = text.isNotBlank() && text.length <= 20_000
-    fun isAuthenticationTokenValid(token: String): Boolean =
-        token.length in 1..MAX_AUTH_TOKEN_LENGTH && token.none(Char::isISOControl)
-    fun isTerminalActionValid(action: String): Boolean = action in setOf("open", "status", "stop")
-
     private fun originOf(value: String): String? = runCatching {
         val uri = URI(value)
         "${uri.scheme}://${uri.host}${if (uri.port == -1) "" else ":${uri.port}"}"
@@ -32,8 +29,10 @@ class BridgeRequestValidator(private val trustedOrigin: String, private val maxF
 
     private fun mimeMatches(expected: String, actual: String): Boolean = expected == "*/*" || expected == actual || expected.endsWith("/*") && actual.startsWith(expected.removeSuffix("*"))
 
-    private fun detectMimeType(bytes: ByteArray): String? = when {
-        bytes.startsWith("%PDF-".toByteArray()) -> "application/pdf"
+    private fun detectMimeType(bytes: ByteArray, reportedType: String?): String? {
+        if (reportedType == DOCX_MIME_TYPE) return DOCX_MIME_TYPE.takeIf { isDocx(bytes) }
+        return when {
+            bytes.startsWith("%PDF-".toByteArray()) -> "application/pdf"
         bytes.startsWith(byteArrayOf(0x89.toByte(), 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a)) -> "image/png"
         bytes.startsWith(byteArrayOf(0xff.toByte(), 0xd8.toByte(), 0xff.toByte())) -> "image/jpeg"
         bytes.startsWith("GIF87a".toByteArray()) || bytes.startsWith("GIF89a".toByteArray()) -> "image/gif"
@@ -43,8 +42,24 @@ class BridgeRequestValidator(private val trustedOrigin: String, private val maxF
         bytes.size >= 12 && bytes.copyOfRange(4, 8).contentEquals("ftyp".toByteArray()) -> "video/mp4"
         bytes.startsWith(byteArrayOf(0x1a, 0x45, 0xdf.toByte(), 0xa3.toByte())) -> "video/webm"
         isPlainText(bytes) -> "text/plain"
-        else -> null
+            else -> null
+        }
     }
+
+    private fun isDocx(bytes: ByteArray): Boolean = runCatching {
+        var contentTypes = false
+        var document = false
+        ZipInputStream(bytes.inputStream()).use { archive ->
+            var entries = 0
+            while (entries++ < 256) {
+                val entry = archive.nextEntry ?: break
+                if (entry.name == "[Content_Types].xml") contentTypes = true
+                if (entry.name == "word/document.xml") document = true
+                if (contentTypes && document) return@use
+            }
+        }
+        contentTypes && document
+    }.getOrDefault(false)
 
     private fun isPlainText(bytes: ByteArray): Boolean {
         if (bytes.isEmpty() || bytes.any { it == 0.toByte() }) return false
@@ -56,8 +71,8 @@ class BridgeRequestValidator(private val trustedOrigin: String, private val maxF
     private fun ByteArray.startsWith(prefix: ByteArray): Boolean = size >= prefix.size && prefix.indices.all { this[it] == prefix[it] }
 
     private companion object {
-        const val MAX_AUTH_TOKEN_LENGTH = 16_384
-        val ALLOWED_MIME_TYPES = setOf("*/*", "image/*", "audio/*", "video/*", "text/plain", "application/pdf")
+        const val DOCX_MIME_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        val ALLOWED_MIME_TYPES = setOf("*/*", "image/*", "audio/*", "video/*", "text/plain", "application/pdf", DOCX_MIME_TYPE)
     }
 }
 

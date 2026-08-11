@@ -16,7 +16,6 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import android.webkit.CookieManager
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -28,23 +27,21 @@ import com.xiaoda.agent.bridge.BridgeContract
 import com.xiaoda.agent.bridge.BridgeRequestValidator
 import com.xiaoda.agent.bridge.SelectedFileInspection
 import com.xiaoda.agent.bridge.SelectedFileReader
-import com.xiaoda.agent.security.KeystoreTokenStore
-import com.xiaoda.agent.security.SessionHandleManager
+import com.xiaoda.agent.local.LocalAiController
+import com.xiaoda.agent.local.LocalStateStore
+import com.xiaoda.agent.local.ProviderConfigValidator
+import com.xiaoda.agent.security.KeystoreSecretStore
 import com.xiaoda.agent.webcontainer.BundledAssetLoader
-import com.xiaoda.agent.webcontainer.EndpointPolicy
 import com.xiaoda.agent.webcontainer.SecureWebViewConfigurator
 import com.xiaoda.agent.webcontainer.TrustedNavigationPolicy
 import org.json.JSONObject
-import java.net.HttpURLConnection
-import java.net.URI
-import java.net.URL
 import java.util.UUID
 
 class MainActivity : AppCompatActivity() {
     private lateinit var webView: WebView
     private lateinit var connectivityManager: ConnectivityManager
     private lateinit var lifecyclePolicy: ConnectionLifecyclePolicy
-    private lateinit var sessionHandleManager: SessionHandleManager
+    private lateinit var localAi: LocalAiController
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var networkCallbackGeneration: Long? = null
     private val networkCallbackGenerations = NetworkCallbackGeneration()
@@ -56,7 +53,16 @@ class MainActivity : AppCompatActivity() {
         val acceptedUri = uri?.takeIf { inspection != null }
         request?.fileCallback?.onReceiveValue(acceptedUri?.let { arrayOf(it) })
         fileCallback = null
-        request?.replyProxy?.postMessage((inspection?.let { bridgeReply(request.id, fileResultObject(it)) } ?: bridgeError(request.id, "invalid_selected_file")).toString())
+        val reply = when {
+            request == null -> null
+            inspection == null -> bridgeError(request.id, "invalid_selected_file")
+            request.localAttachment -> bridgeReply(
+                request.id,
+                localAi.storeAttachment(uri?.let(::selectedFileName) ?: "attachment", inspection.mimeType, inspection.bytes),
+            )
+            else -> bridgeReply(request.id, fileResultObject(inspection))
+        }
+        request?.replyProxy?.postMessage(reply?.toString().orEmpty())
         pendingFileRequest = null
     }
     private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) {}
@@ -68,8 +74,10 @@ class MainActivity : AppCompatActivity() {
         webView = findViewById(R.id.web_view)
         SecureWebViewConfigurator.configure(webView, BuildConfig.WEBVIEW_DEBUGGING)
         lifecyclePolicy = ConnectionLifecyclePolicy(ConnectionLifecycleState(false, false))
-        sessionHandleManager = SessionHandleManager(KeystoreTokenStore(applicationContext))
-        val runtimeConfigReady = configureRuntimeConfig()
+        localAi = LocalAiController(
+            LocalStateStore(applicationContext, KeystoreSecretStore(applicationContext)),
+            validator = ProviderConfigValidator(BuildConfig.DEBUG),
+        )
         configureWebContainer()
         configureBridge()
         configureBackNavigation()
@@ -79,7 +87,7 @@ class MainActivity : AppCompatActivity() {
         val deepLinkHandled = handleDeepLink(intent)
         requestNotificationPermission()
         if (!restored && !deepLinkHandled) {
-            if (runtimeConfigReady && BundledAssetLoader(this).isTrusted(BuildConfig.WEB_ASSET_VERSION)) webView.loadUrl(BundledAssetLoader.START_URL) else showDiagnosticError()
+            if (BundledAssetLoader(this).isTrusted(BuildConfig.WEB_ASSET_VERSION)) webView.loadUrl(BundledAssetLoader.START_URL) else showDiagnosticError()
         }
     }
 
@@ -118,36 +126,9 @@ class MainActivity : AppCompatActivity() {
         webView.webViewClient = WebViewClient()
         webView.removeAllViews()
         webView.destroy()
+        if (::localAi.isInitialized) localAi.close()
         super.onDestroy()
     }
-
-    private fun configureRuntimeConfig(): Boolean {
-        val endpoint = remoteEndpoint() ?: return false
-        if (!WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) return false
-        val uri = URI(endpoint)
-        val websocketScheme = if (uri.scheme.equals("https", ignoreCase = true)) "wss" else "ws"
-        val basePath = uri.rawPath.orEmpty().trimEnd('/')
-        val config = JSONObject()
-            .put("apiBase", "$endpoint/api/v1")
-            .put("wsUrl", "$websocketScheme://${uri.rawAuthority}$basePath/ws")
-            .put("maxUploadBytes", BuildConfig.UPLOAD_MAX_BYTES)
-        WebViewCompat.addDocumentStartJavaScript(
-            webView,
-            "window.__XIAODA_RUNTIME_CONFIG__=Object.freeze(${config});",
-            setOf(BundledAssetLoader.ORIGIN),
-        )
-        return true
-    }
-
-    private val resolvedRemoteEndpoint: String? by lazy(LazyThreadSafetyMode.NONE) {
-        val endpoint = (if (BuildConfig.DEBUG) intent.getStringExtra(EXTRA_REMOTE_ENDPOINT) else null)
-            ?.trim()?.trimEnd('/')
-            ?: getString(R.string.remote_endpoint).trim().trimEnd('/')
-        val policy = EndpointPolicy(resources.getBoolean(R.bool.allow_development_endpoints))
-        endpoint.takeIf(policy::isAllowed)
-    }
-
-    private fun remoteEndpoint(): String? = resolvedRemoteEndpoint
 
     private fun configureWebContainer() {
         val loader = BundledAssetLoader(this)
@@ -205,11 +186,24 @@ class MainActivity : AppCompatActivity() {
                 val result = when (method) {
                     "getInsets" -> JSONObject().put("top", 0).put("right", 0).put("bottom", 0).put("left", 0)
                     "getNetworkStatus" -> JSONObject().put("connected", lifecyclePolicy.shouldConnect)
-                    "authenticate" -> authenticate(request.optString("id"), args.optString("password"), replyProxy)
-                    "restoreSession" -> restoreSession(request.optString("id"), replyProxy)
-                    "clearSession" -> clearSession(request.optString("id"))
                     "shareText" -> shareText(args.optString("text"), validator)
                     "pickFile" -> pickFile(request.optString("id"), args.optString("accept"), args.optLong("maxBytes"), validator, replyProxy)
+                    "local.bootstrap" -> localAi.bootstrap()
+                    "local.saveProvider" -> localAi.saveProvider(args)
+                    "local.deleteProvider" -> localAi.deleteProvider(args)
+                    "local.saveAgent" -> localAi.saveAgent(args)
+                    "local.listSessions" -> localAi.sessions()
+                    "local.createSession" -> localAi.createSession()
+                    "local.getMessages" -> localAi.messages(args)
+                    "local.deleteSession" -> localAi.deleteSession(args)
+                    "local.abort" -> localAi.abort(args)
+                    "local.pickAttachment" -> pickAttachment(request.optString("id"), args.optString("accept", "*/*"), args.optLong("maxBytes"), validator, replyProxy)
+                    "local.listModels" -> {
+                        val id = request.optString("id")
+                        localAi.listModels(args) { asyncResult -> postBridgeResult(id, asyncResult, replyProxy) }
+                        null
+                    }
+                    "local.chat" -> localAi.startChat(args) { event -> webView.post { replyProxy.postMessage(event.toString()) } }
                     else -> JSONObject().put("error", "unsupported_method")
                 }
                 if (result != null) {
@@ -222,90 +216,16 @@ class MainActivity : AppCompatActivity() {
     }
 
 
-    private fun authenticate(id: String, password: String, replyProxy: JavaScriptReplyProxy): JSONObject? {
-        if (password.length > 4096 || password.any(Char::isISOControl)) return JSONObject().put("error", "invalid_authentication")
-        Thread {
-            val result = runCatching {
-                val login = postJson("/api/v1/auth/login", JSONObject().put("password", password), null)
-                val token = login.getJSONObject("data").getString("token")
-                sessionHandleManager.create(token)
-                createRemoteSession(token)
-            }
-            runOnUiThread { replyProxy.postMessage(result.fold({ bridgeReply(id, it) }, { bridgeError(id, "authentication_failed") }).toString()) }
-        }.start()
-        return null
-    }
-
-    private fun restoreSession(id: String, replyProxy: JavaScriptReplyProxy): JSONObject? {
-        Thread {
-            val result = runCatching { renewRemoteSession() }.recoverCatching {
-                val handle = sessionHandleManager.restore() ?: throw IllegalStateException("session_unavailable")
-                val token = sessionHandleManager.resolve(handle) ?: throw IllegalStateException("session_unavailable")
-                createRemoteSession(token)
-            }
-            runOnUiThread { replyProxy.postMessage(result.fold({ bridgeReply(id, it) }, { bridgeError(id, "session_unavailable") }).toString()) }
-        }.start()
-        return null
-    }
-
-    private fun clearSession(id: String): JSONObject {
-        sessionHandleManager.clear()
-        remoteEndpoint()?.let { endpoint ->
-            CookieManager.getInstance().setCookie(endpoint, sessionCookie("", 0))
-            CookieManager.getInstance().flush()
-        }
-        return JSONObject().put("cleared", true)
-    }
-
-    private fun createRemoteSession(token: String): JSONObject {
-        val response = postJson("/api/v1/auth/webview-session", JSONObject(), token)
-        val data = response.getJSONObject("data")
-        val handle = data.getString("handle")
-        remoteEndpoint()?.let { endpoint ->
-            CookieManager.getInstance().setCookie(endpoint, sessionCookie(handle, BuildConfig.SESSION_COOKIE_MAX_AGE_SECONDS))
-            CookieManager.getInstance().flush()
-        }
-        return JSONObject().put("handle", handle).put("expiresAt", data.getDouble("expires_at"))
-    }
-
-    private fun renewRemoteSession(): JSONObject {
-        val response = postJson("/api/v1/auth/webview-session/renew", JSONObject(), null)
-        val data = response.getJSONObject("data")
-        val handle = data.getString("handle")
-        remoteEndpoint()?.let { endpoint ->
-            CookieManager.getInstance().setCookie(endpoint, sessionCookie(handle, BuildConfig.SESSION_COOKIE_MAX_AGE_SECONDS))
-            CookieManager.getInstance().flush()
-        }
-        return JSONObject().put("handle", handle).put("expiresAt", data.getDouble("expires_at"))
-    }
-
-    private fun sessionCookie(handle: String, maxAgeSeconds: Int): String =
-        "${BuildConfig.SESSION_COOKIE_NAME}=$handle; Max-Age=$maxAgeSeconds; Path=/; Secure; HttpOnly; SameSite=${BuildConfig.SESSION_COOKIE_SAME_SITE}"
-
-    private fun postJson(path: String, body: JSONObject, token: String?): JSONObject {
-        val endpoint = remoteEndpoint() ?: throw IllegalStateException("remote_endpoint_rejected")
-        val connection = URL(endpoint + path).openConnection() as HttpURLConnection
-        return try {
-            connection.requestMethod = "POST"
-            connection.connectTimeout = 10_000
-            connection.readTimeout = 10_000
-            connection.doOutput = true
-            connection.setRequestProperty("Content-Type", "application/json")
-            if (token != null) connection.setRequestProperty("Authorization", "Bearer $token")
-            connection.outputStream.use { it.write(body.toString().toByteArray()) }
-            val status = connection.responseCode
-            val stream = if (status in 200..299) connection.inputStream else connection.errorStream
-            val text = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
-            if (status !in 200..299) throw IllegalStateException("remote_auth_failed")
-            JSONObject(text)
-        } finally {
-            connection.disconnect()
-        }
-    }
-
     private fun bridgeReply(id: String, result: Any): JSONObject = JSONObject().put("id", id).put("result", result)
 
     private fun bridgeError(id: String, error: String): JSONObject = JSONObject().put("id", id).put("error", error)
+
+    private fun postBridgeResult(id: String, result: JSONObject, replyProxy: JavaScriptReplyProxy) {
+        webView.post {
+            val error = result.optString("error")
+            replyProxy.postMessage((if (error.isNotEmpty()) bridgeError(id, error) else bridgeReply(id, result)).toString())
+        }
+    }
 
     private fun shareText(text: String, validator: BridgeRequestValidator): JSONObject {
         if (!validator.isShareTextValid(text)) return JSONObject().put("error", "invalid_share_text")
@@ -320,6 +240,14 @@ class MainActivity : AppCompatActivity() {
         if (!validator.isFileRequestValid(accept, maxBytes)) return JSONObject().put("error", "invalid_file_request")
         if (pendingFileRequest != null) return JSONObject().put("error", "file_request_in_progress")
         pendingFileRequest = PendingFileRequest(id, accept, maxBytes, replyProxy, null)
+        filePicker.launch(arrayOf(accept))
+        return null
+    }
+
+    private fun pickAttachment(id: String, accept: String, maxBytes: Long, validator: BridgeRequestValidator, replyProxy: JavaScriptReplyProxy): JSONObject? {
+        if (!validator.isFileRequestValid(accept, maxBytes)) return JSONObject().put("error", "invalid_file_request")
+        if (pendingFileRequest != null) return JSONObject().put("error", "file_request_in_progress")
+        pendingFileRequest = PendingFileRequest(id, accept, maxBytes, replyProxy, null, localAttachment = true)
         filePicker.launch(arrayOf(accept))
         return null
     }
@@ -340,6 +268,12 @@ class MainActivity : AppCompatActivity() {
             reportedSize,
         )
     }
+
+    private fun selectedFileName(uri: Uri): String = runCatching {
+        contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+            if (cursor.moveToFirst() && !cursor.isNull(0)) cursor.getString(0) else null
+        }
+    }.getOrNull()?.takeIf(String::isNotBlank) ?: "attachment"
 
     private fun fileResultObject(file: SelectedFileInspection): JSONObject = JSONObject()
         .put("dataBase64", Base64.encodeToString(file.bytes, Base64.NO_WRAP))
@@ -404,9 +338,7 @@ class MainActivity : AppCompatActivity() {
         val maxBytes: Long,
         val replyProxy: JavaScriptReplyProxy?,
         val fileCallback: ValueCallback<Array<Uri>>?,
+        val localAttachment: Boolean = false,
     )
 
-    private companion object {
-        const val EXTRA_REMOTE_ENDPOINT = "xiaoda.remoteEndpointOverride"
-    }
 }

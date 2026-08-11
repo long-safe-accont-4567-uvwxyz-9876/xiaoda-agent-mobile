@@ -5,6 +5,7 @@ import java.io.InputStream
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -19,18 +20,12 @@ class BridgeRequestValidatorTest {
     }
 
     @Test
-    fun `bridge validates file share and terminal parameters`() {
+    fun `bridge validates local file and share parameters`() {
         assertTrue(validator.isFileRequestValid("image/*", 1024))
         assertTrue(validator.isFileRequestValid("*/*", 1024))
         assertFalse(validator.isFileRequestValid("image/*", 20L * 1024 * 1024))
         assertTrue(validator.isShareTextValid("hello"))
         assertFalse(validator.isShareTextValid("x".repeat(20_001)))
-        assertTrue(validator.isAuthenticationTokenValid("opaque-provider-session"))
-        assertFalse(validator.isAuthenticationTokenValid(""))
-        assertFalse(validator.isAuthenticationTokenValid("line\nbreak"))
-        assertFalse(validator.isAuthenticationTokenValid("x".repeat(16_385)))
-        assertTrue(validator.isTerminalActionValid("status"))
-        assertFalse(validator.isTerminalActionValid("run:rm -rf"))
     }
 
     @Test
@@ -109,5 +104,23 @@ class BridgeRequestValidatorTest {
         )
 
         assertNull(result)
+    }
+
+    @Test
+    fun acceptsOnlyStructurallyValidDocxArchives() {
+        val bytes = java.io.ByteArrayOutputStream().use { output ->
+            java.util.zip.ZipOutputStream(output).use { archive ->
+                archive.putNextEntry(java.util.zip.ZipEntry("[Content_Types].xml"))
+                archive.write("<Types/>".toByteArray())
+                archive.closeEntry()
+                archive.putNextEntry(java.util.zip.ZipEntry("word/document.xml"))
+                archive.write("<document/>".toByteArray())
+                archive.closeEntry()
+            }
+            output.toByteArray()
+        }
+        val mime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        assertNotNull(validator.inspectSelectedFile("content", mime, "*/*", bytes, 1024 * 1024))
+        assertNull(validator.inspectSelectedFile("content", mime, "*/*", "PK fake".toByteArray(), 1024 * 1024))
     }
 }

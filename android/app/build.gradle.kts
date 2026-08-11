@@ -11,10 +11,6 @@ val projectMetadataFile = repositoryRoot.resolve("pyproject.toml")
 val mobileContractFile = repositoryRoot.resolve("config/mobile_contract.json")
 val mobileContract = groovy.json.JsonSlurper().parse(mobileContractFile) as Map<*, *>
 val uploadMaxBytes = (mobileContract["upload_max_bytes"] as Number).toLong()
-val sessionCookie = mobileContract["webview_session_cookie"] as Map<*, *>
-val sessionCookieName = sessionCookie["name"].toString()
-val sessionCookieMaxAgeSeconds = (sessionCookie["max_age_seconds"] as Number).toInt()
-val sessionCookieSameSite = sessionCookie["same_site"].toString().replaceFirstChar { it.uppercase() }
 val webDistDir = layout.buildDirectory.dir("intermediates/webDist")
 val generatedWebAssets = layout.buildDirectory.dir("generated/webAssets")
 val webAssetVersion = Regex("""(?m)^version\s*=\s*"([^"]+)"\s*$""")
@@ -93,9 +89,6 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "WEB_ASSET_VERSION", "\"$webAssetVersion\"")
         buildConfigField("long", "UPLOAD_MAX_BYTES", "${uploadMaxBytes}L")
-        buildConfigField("String", "SESSION_COOKIE_NAME", "\"$sessionCookieName\"")
-        buildConfigField("int", "SESSION_COOKIE_MAX_AGE_SECONDS", sessionCookieMaxAgeSeconds.toString())
-        buildConfigField("String", "SESSION_COOKIE_SAME_SITE", "\"$sessionCookieSameSite\"")
     }
 
     buildTypes {
@@ -146,7 +139,10 @@ dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
     implementation(libs.androidx.webkit)
+    implementation(libs.okhttp.core)
     testImplementation(libs.junit)
+    testImplementation(libs.json.jvm)
+    testImplementation(libs.okhttp.mockwebserver)
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.androidx.test.core)
     androidTestImplementation(libs.androidx.test.runner)
