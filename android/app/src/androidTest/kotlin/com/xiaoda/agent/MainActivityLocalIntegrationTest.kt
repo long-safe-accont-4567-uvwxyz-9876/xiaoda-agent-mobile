@@ -5,11 +5,13 @@ import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.xiaoda.agent.local.LocalAiController
-import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 @RunWith(AndroidJUnit4::class)
 class MainActivityLocalIntegrationTest {
@@ -22,6 +24,22 @@ class MainActivityLocalIntegrationTest {
                 val webView = field.get(activity) as android.webkit.WebView
                 assertTrue(webView.url.orEmpty().startsWith("https://appassets.androidplatform.net"))
             }
+            val rendered = AtomicBoolean(false)
+            for (attempt in 0 until 20) {
+                val evaluated = CountDownLatch(1)
+                scenario.onActivity { activity ->
+                    val field = MainActivity::class.java.getDeclaredField("webView").apply { isAccessible = true }
+                    val webView = field.get(activity) as android.webkit.WebView
+                    webView.evaluateJavascript("document.body.innerText.includes('本地优先的小达')") { result ->
+                        rendered.set(result == "true")
+                        evaluated.countDown()
+                    }
+                }
+                assertTrue("WebView JavaScript evaluation timed out", evaluated.await(2, TimeUnit.SECONDS))
+                if (rendered.get()) break
+                Thread.sleep(500)
+            }
+            assertTrue("Mobile local UI did not render", rendered.get())
         }
     }
 
