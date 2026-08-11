@@ -58,6 +58,13 @@ class AndroidBuildContractTest(unittest.TestCase):
         self.assertIn("androidTestImplementation(libs.androidx.test.runner)", app_script)
         self.assertIn("connectedCheck", workflow)
         self.assertIn("android-emulator-runner", workflow)
+        self.assertIn("smoke_launch_variants.sh", workflow)
+        smoke_script = ROOT / "scripts" / "smoke_launch_variants.sh"
+        self.assertTrue(smoke_script.is_file())
+        smoke = smoke_script.read_text(encoding="utf-8")
+        for package_name in ("com.xiaoda.agent.debug", "com.xiaoda.agent.staging", "com.xiaoda.agent"):
+            self.assertIn(package_name, smoke)
+        self.assertIn("adb shell pidof", smoke)
         self.assertTrue(instrumentation_test.is_file())
         self.assertIn("BundledAssetLoader(context).isTrusted", instrumentation_test.read_text(encoding="utf-8"))
 

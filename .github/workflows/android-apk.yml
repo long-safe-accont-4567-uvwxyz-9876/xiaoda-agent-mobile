@@ -74,7 +74,9 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
           working-directory: android
-          script: ./gradlew connectedCheck
+          script: |
+            ./gradlew connectedCheck
+            bash scripts/smoke_launch_variants.sh
 
       - name: Verify APK contents
         run: >-
