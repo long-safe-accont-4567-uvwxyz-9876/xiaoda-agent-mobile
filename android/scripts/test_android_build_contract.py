@@ -58,28 +58,19 @@ class AndroidBuildContractTest(unittest.TestCase):
         self.assertIn("androidTestImplementation(libs.androidx.test.runner)", app_script)
         self.assertIn("connectedCheck", workflow)
         self.assertIn("android-emulator-runner", workflow)
-        self.assertIn("smoke_launch_variants.sh", workflow)
-        smoke_script = ROOT / "scripts" / "smoke_launch_variants.sh"
-        self.assertTrue(smoke_script.is_file())
-        smoke = smoke_script.read_text(encoding="utf-8")
-        for package_name in ("com.xiaoda.agent.debug", "com.xiaoda.agent.staging", "com.xiaoda.agent"):
-            self.assertIn(package_name, smoke)
-        self.assertIn("adb shell pidof", smoke)
         self.assertTrue(instrumentation_test.is_file())
         self.assertIn("BundledAssetLoader(context).isTrusted", instrumentation_test.read_text(encoding="utf-8"))
 
-    def test_native_local_core_keeps_provider_secrets_out_of_webview(self):
+    def test_native_authentication_exposes_only_opaque_handles(self):
         activity = (ROOT / "app" / "src" / "main" / "kotlin" / "com" / "xiaoda" / "agent" / "MainActivity.kt").read_text(encoding="utf-8")
         contract = (ROOT / "core" / "bridge-api" / "src" / "main" / "kotlin" / "com" / "xiaoda" / "agent" / "bridge" / "BridgeContract.kt").read_text(encoding="utf-8")
-        secret_store = (ROOT / "core" / "security" / "src" / "main" / "kotlin" / "com" / "xiaoda" / "agent" / "security" / "SecureSecretStore.kt").read_text(encoding="utf-8")
 
-        self.assertIn('"local.saveProvider"', contract)
-        self.assertIn('"local.chat"', contract)
-        for method in ('"authenticate"', '"restoreSession"', '"clearSession"', '"setSecureToken"'):
-            self.assertNotIn(method, contract)
-        self.assertIn("KeystoreSecretStore", activity)
-        self.assertIn('const val ALIAS = "xiaoda.local.secrets"', secret_store)
-        self.assertNotIn('put("apiKey"', activity)
+        self.assertNotIn("setSecureToken", contract)
+        self.assertIn('"authenticate"', contract)
+        self.assertIn('"restoreSession"', contract)
+        self.assertIn("KeystoreTokenStore", activity)
+        self.assertIn("SessionHandleManager", activity)
+        self.assertNotIn('put("token"', activity)
 
     def test_webview_state_is_restored_before_loading_fresh_ui(self):
         activity = (ROOT / "app" / "src" / "main" / "kotlin" / "com" / "xiaoda" / "agent" / "MainActivity.kt").read_text(encoding="utf-8")
@@ -135,19 +126,18 @@ class AndroidBuildContractTest(unittest.TestCase):
         for marker in ("Termux", "termux", "terminal-runtime", "ndk;22.1.7171670", "verify_termux_component.py"):
             self.assertNotIn(marker, workflow)
 
-    def test_mobile_build_uses_the_local_only_entrypoint(self):
+    def test_remote_runtime_config_is_injected_before_frontend_modules(self):
         activity = (ROOT / "app" / "src" / "main" / "kotlin" / "com" / "xiaoda" / "agent" / "MainActivity.kt").read_text(encoding="utf-8")
-        main = (ROOT.parent / "web" / "frontend" / "src" / "main.ts").read_text(encoding="utf-8")
-        mobile_app = (ROOT.parent / "web" / "frontend" / "src" / "MobileApp.vue").read_text(encoding="utf-8")
-        local_bridge = (ROOT.parent / "web" / "frontend" / "src" / "platform" / "localNativeBridge.ts").read_text(encoding="utf-8")
+        api = (ROOT.parent / "web" / "frontend" / "src" / "api" / "index.ts").read_text(encoding="utf-8")
+        websocket = (ROOT.parent / "web" / "frontend" / "src" / "api" / "ws.ts").read_text(encoding="utf-8")
 
-        self.assertNotIn("remoteEndpoint", activity)
-        self.assertNotIn("__XIAODA_RUNTIME_CONFIG__", activity)
-        self.assertIn("VITE_XIAODA_MOBILE_BUILD", main)
-        self.assertIn("startMobileApp", main)
-        self.assertIn("MobileLocalView", mobile_app)
-        self.assertIn("local.bootstrap", local_bridge)
-        self.assertNotIn("authenticate", local_bridge)
+        self.assertIn("addDocumentStartJavaScript", activity)
+        self.assertIn("__XIAODA_RUNTIME_CONFIG__", activity)
+        self.assertIn("runtimeApiBase", api)
+        self.assertIn("credentials: 'include'", api)
+        self.assertIn("runtimeWebSocketUrl", websocket)
+        self.assertIn("['xiaoda-session', token]", websocket)
+        self.assertIn("isAndroidWebView() && token", websocket)
 
     def test_upload_limit_is_shared_by_runtime_and_bridge(self):
         activity = (ROOT / "app" / "src" / "main" / "kotlin" / "com" / "xiaoda" / "agent" / "MainActivity.kt").read_text(encoding="utf-8")
@@ -155,8 +145,7 @@ class AndroidBuildContractTest(unittest.TestCase):
         prompt = (ROOT.parent / "web" / "frontend" / "src" / "components" / "chat" / "PromptInput.vue").read_text(encoding="utf-8")
 
         self.assertIn('config/mobile_contract.json', gradle)
-        self.assertIn("BuildConfig.UPLOAD_MAX_BYTES", activity)
-        self.assertIn('"local.pickAttachment"', activity)
+        self.assertIn('put("maxUploadBytes", BuildConfig.UPLOAD_MAX_BYTES)', activity)
         self.assertIn("runtimeMaxUploadBytes()", prompt)
         self.assertNotIn("MAX_FILE_BYTES", activity)
 
@@ -181,18 +170,17 @@ class AndroidBuildContractTest(unittest.TestCase):
         for mobile_terminal_marker in ("sheetHeight", "visualViewport", "isMobileViewport", "@media (max-width: 767px)"):
             self.assertNotIn(mobile_terminal_marker, terminal)
 
-    def test_local_activity_and_provider_streaming_integration_are_present(self):
+    def test_mock_webserver_activity_integration_is_present(self):
         catalog = (ROOT / "gradle" / "libs.versions.toml").read_text(encoding="utf-8")
         app_script = (ROOT / "app" / "build.gradle.kts").read_text(encoding="utf-8")
-        activity_test = ROOT / "app" / "src" / "androidTest" / "kotlin" / "com" / "xiaoda" / "agent" / "MainActivityLocalIntegrationTest.kt"
-        provider_test = ROOT / "app" / "src" / "test" / "kotlin" / "com" / "xiaoda" / "agent" / "local" / "ProviderClientTest.kt"
+        test_file = ROOT / "app" / "src" / "androidTest" / "kotlin" / "com" / "xiaoda" / "agent" / "MainActivityMockWebServerTest.kt"
 
         self.assertIn("mockwebserver", catalog.lower())
-        self.assertIn("testImplementation(libs.okhttp.mockwebserver)", app_script)
-        self.assertTrue(activity_test.is_file())
-        self.assertTrue(provider_test.is_file())
-        self.assertIn("ActivityScenario", activity_test.read_text(encoding="utf-8"))
-        self.assertIn("MockWebServer", provider_test.read_text(encoding="utf-8"))
+        self.assertIn("androidTestImplementation(libs.okhttp.mockwebserver)", app_script)
+        self.assertTrue(test_file.is_file())
+        source = test_file.read_text(encoding="utf-8")
+        self.assertIn("ActivityScenario", source)
+        self.assertIn("MockWebServer", source)
 
 
 if __name__ == "__main__":

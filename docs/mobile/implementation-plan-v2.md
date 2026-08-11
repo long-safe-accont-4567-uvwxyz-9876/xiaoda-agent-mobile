@@ -446,21 +446,6 @@
 
 **取消证据**：2026-08-10 用户明确要求移动端砍掉终端。ADR-MOB2-010 废止 ADR-MOB2-009 的研究例外，G5-05/G5-06 从 BLOCKED 改为 CANCELED。
 
-### G5-07 移动端本地核心（进行中）
-
-- [x] Android 使用独立的 Mobile Vite 入口，APK 不再打包或启动远程服务版页面。
-- [x] 删除 Android 的远程服务地址、远程登录、短期会话句柄和 Cookie 认证路径。
-- [x] Provider 元数据保存在设备本地，API Key 由 Android Keystore AES-GCM 加密保存且不返回 WebView。
-- [x] 支持 OpenAI-compatible 与 Anthropic Provider、模型列表和 SSE 流式聊天。
-- [x] 支持本地会话历史、基础 Agent、系统提示词、图片、纯文本、PDF 和结构校验后的 DOCX 选择与保存。
-- [x] 建立多 Agent、长期记忆、定时任务、浏览器自动化、工具替代层、插件和复杂文档处理的 Kotlin 能力注册接口。
-- [ ] 实现向量化长期记忆和多 Agent 实际编排。
-- [ ] 实现 WorkManager 定时任务、受限浏览器自动化和本地插件执行模型。
-- [ ] 实现 DOCX/PDF 本地文本抽取、分块和复杂文档问答。
-
-**当前验收**：安装 APK 后无需部署 Xiaoda/FastAPI 服务；用户在设备内配置云模型 Provider、API Key 和模型即可建立本地会话并发起流式聊天。移动端仍不包含本地大模型、Python runtime、FastAPI、Termux、PTY 或终端能力。
-
-**实施证据**：`MobileApp.vue`/`MobileLocalView.vue` 为移动专用入口；`LocalAiController`、`ProviderClient`、`LocalStateStore` 和 `KeystoreSecretStore` 构成本地核心。2026-08-11 已通过前端 typecheck、Local Bridge 单测、Android Python 合同测试、Gradle `lint test assembleDebug assembleStaging assembleRelease` 及三变体 APK 防复活扫描。
 ## G6 集成、发布和回滚
 
 ### G6-01 全量测试

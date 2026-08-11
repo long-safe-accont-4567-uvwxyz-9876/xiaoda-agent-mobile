@@ -1,40 +1,29 @@
 package com.xiaoda.agent.bridge
 
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class BridgeContractTest {
     @Test
-    fun approvedBridgeSurfaceMatchesTheLocalMobileArchitecture() {
-        assertEquals(
-            setOf(
-                "getInsets",
-                "getNetworkStatus",
-                "pickFile",
-                "shareText",
-                "local.bootstrap",
-                "local.saveProvider",
-                "local.deleteProvider",
-                "local.listModels",
-                "local.saveAgent",
-                "local.listSessions",
-                "local.createSession",
-                "local.getMessages",
-                "local.deleteSession",
-                "local.chat",
-                "local.abort",
-                "local.pickAttachment",
-            ),
-            BridgeContract.allowedMethods,
-        )
+    fun approvedBridgeSurfaceMatchesTheArchitectureAllowlist() {
+        val methods = BridgeContract.allowedMethods
+
+        assertTrue(methods.containsAll(setOf("getInsets", "getNetworkStatus", "authenticate", "restoreSession", "clearSession", "pickFile", "shareText")))
+        assertTrue(methods.size == 7)
     }
 
     @Test
-    fun remoteAuthenticationAndGenericRuntimeCapabilitiesCannotBeExposed() {
+    fun genericCommandFileAndIntentCapabilitiesCannotBeExposed() {
         val methods = BridgeContract.allowedMethods
-        for (method in setOf("authenticate", "restoreSession", "clearSession", "setSecureToken", "runCommand", "readFile", "openIntent", "openTerminal", "getRuntimeStatus", "stopRuntime")) {
-            assertFalse(method in methods)
-        }
+
+        assertFalse("runCommand" in methods)
+        assertFalse("readFile" in methods)
+        assertFalse("openIntent" in methods)
+        assertFalse("setSecureToken" in methods)
+        assertFalse("setSheetOpen" in methods)
+        assertFalse("openTerminal" in methods)
+        assertFalse("getRuntimeStatus" in methods)
+        assertFalse("stopRuntime" in methods)
     }
 }

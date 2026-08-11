@@ -21,11 +21,6 @@ class AndroidSecurityIntegrationTest {
 
     @Test
     fun packagedBridgeCannotReceiveRawTokensOrGenericCapabilities() {
-        assertTrue("local.bootstrap" in BridgeContract.allowedMethods)
-        assertTrue("local.chat" in BridgeContract.allowedMethods)
-        assertFalse("authenticate" in BridgeContract.allowedMethods)
-        assertFalse("restoreSession" in BridgeContract.allowedMethods)
-        assertFalse("clearSession" in BridgeContract.allowedMethods)
         assertFalse("setSecureToken" in BridgeContract.allowedMethods)
         assertFalse("runCommand" in BridgeContract.allowedMethods)
         assertFalse("readFile" in BridgeContract.allowedMethods)

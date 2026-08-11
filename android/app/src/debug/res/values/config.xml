@@ -1,0 +1,4 @@
+<resources>
+    <string name="remote_endpoint" translatable="false">http://10.0.2.2:8000</string>
+    <bool name="allow_development_endpoints">true</bool>
+</resources>

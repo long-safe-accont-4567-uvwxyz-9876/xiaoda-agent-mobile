@@ -15,7 +15,7 @@
 | WebUI 导航 | 桌面侧栏为主 | 桌面侧栏 + 方案 C 移动壳 | P0 |
 | 终端 | 桌面右侧面板 | 桌面保留；移动端不提供 | P0 |
 | 壁纸 | URL + cover | 焦点、局部遮罩、安全区、性能档 | P1 |
-| Android | 远程 WebUI 系统壳 | 独立 Mobile UI + Android 原生本地核心，直接调用云模型 API | P0 |
+| Android | 旧文档定义完整 Compose UI | WebUI 系统壳 | P1 |
 | 文档 | 旧方案与新决策冲突 | `docs/mobile` 为唯一权威来源 | P0 |
 
 ## 3. 本地部署与本地 Embedding
