@@ -6,6 +6,7 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import androidx.webkit.WebViewAssetLoader
 import java.security.MessageDigest
+import org.json.JSONObject
 
 class BundledAssetLoader(private val context: Context) {
     private val loader = WebViewAssetLoader.Builder()
@@ -15,21 +16,32 @@ class BundledAssetLoader(private val context: Context) {
     fun intercept(request: WebResourceRequest): WebResourceResponse? = loader.shouldInterceptRequest(request.url)
 
     fun isTrusted(appVersion: String): Boolean {
-        val manifest = runCatching { context.assets.open("asset-manifest.json").bufferedReader().use { it.readText() } }.getOrNull() ?: return false
+        val manifest = runCatching {
+            context.assets.open("asset-manifest.json").bufferedReader().use { it.readText() }
+        }.getOrNull() ?: return false
+        val root = runCatching { JSONObject(manifest) }.getOrNull() ?: return false
+        if (root.optString("appVersion") != appVersion) return false
+        val files = root.optJSONObject("files") ?: return false
+        val expectedPaths = files.keys().asSequence().toList()
+        if (expectedPaths.isEmpty()) return false
+
         val actualFiles = mutableMapOf<String, String>()
-        fun collect(path: String) {
-            val children = context.assets.list(path).orEmpty()
-            if (children.isNotEmpty()) {
-                children.forEach { child -> collect(if (path.isEmpty()) child else "$path/$child") }
-                return
-            }
-            if (path == "asset-manifest.json") return
+        for (path in expectedPaths) {
+            val expectedDigest = files.optString(path)
+            if (
+                path.startsWith("/") ||
+                path.split('/').contains("..") ||
+                '\\' in path ||
+                !expectedDigest.matches(Regex("[a-f0-9]{64}"))
+            ) return false
             val digest = runCatching {
-                context.assets.open(path, AssetManager.ACCESS_STREAMING).use { input -> MessageDigest.getInstance("SHA-256").digest(input.readBytes()) }
-            }.getOrNull() ?: return
+                context.assets.open(path, AssetManager.ACCESS_STREAMING).use { input ->
+                    MessageDigest.getInstance("SHA-256").digest(input.readBytes())
+                }
+            }.getOrNull() ?: return false
             actualFiles[path] = digest.joinToString("") { "%02x".format(it) }
         }
-        return runCatching { collect(""); AssetManifestVerifier().isValid(manifest, appVersion, actualFiles) }.getOrDefault(false)
+        return AssetManifestVerifier().isValid(manifest, appVersion, actualFiles)
     }
 
     companion object {
