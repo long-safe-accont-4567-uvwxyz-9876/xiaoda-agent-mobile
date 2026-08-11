@@ -13,7 +13,7 @@
 | Ollama | Provider 特例 | 完整删除 | P0 |
 | 自定义 Provider | 可用但诊断和事务不足 | 主模型接入路径 | P0 |
 | WebUI 导航 | 桌面侧栏为主 | 桌面侧栏 + 方案 C 移动壳 | P0 |
-| 终端 | 桌面右侧面板 | 桌面面板 + 移动底部 Sheet | P1 |
+| 终端 | 桌面右侧面板 | 桌面保留；移动端不提供 | P0 |
 | 壁纸 | URL + cover | 焦点、局部遮罩、安全区、性能档 | P1 |
 | Android | 旧文档定义完整 Compose UI | WebUI 系统壳 | P1 |
 | 文档 | 旧方案与新决策冲突 | `docs/mobile` 为唯一权威来源 | P0 |
@@ -281,7 +281,7 @@ web/frontend/src/composables/useViewportInsets.ts
 
 | 页面 | 移动适配重点 |
 |---|---|
-| Chat | 工具栏收敛、输入区安全区、会话抽屉、终端 FAB |
+| Chat | 工具栏收敛、输入区安全区、会话抽屉；移动端不挂载终端 |
 | Insight | 图谱降级、Tab 横向滚动、列表优先 |
 | Schedule | 日历与任务列表切换、编辑 Sheet |
 | Media | 单列素材、上传 FAB、播放器全宽 |
@@ -306,7 +306,6 @@ web/frontend/src/composables/useViewportInsets.ts
 - 抽离终端会话状态与容器布局。
 - 移动端以底部 Sheet 展示。
 - Sheet 支持 50%、90% 两档或拖拽。
-- 监听 VisualViewport，键盘出现时调整终端可用高度。
 - 屏幕旋转仅执行 fit/resize，不重建 session。
 - FAB 避开底栏和手势区。
 - 关闭前提示会话影响。
@@ -364,7 +363,6 @@ android/
 ├─ core/webcontainer/
 ├─ core/security/
 ├─ core/bridge-api/
-├─ feature/terminal-runtime/
 ├─ build-logic/
 └─ gradle/libs.versions.toml
 ```
@@ -384,28 +382,27 @@ android/
 
 ```text
 getInsets()
+getNetworkStatus()
+authenticate(password)
+restoreSession()
+clearSession()
 pickFile(accept, maxBytes)
 shareText(text)
-setSecureToken(tokenHandle)
-openTerminal()
-getRuntimeStatus()
-stopRuntime()
 ```
 
-不得提供 `runCommand(string)`、`readFile(path)` 或 `openIntent(uri)` 这类通用能力。
+不得提供 `runCommand(string)`、`readFile(path)`、`openIntent(uri)`、`openTerminal()`、`getRuntimeStatus()`、`stopRuntime()` 或 `setSheetOpen()`。
 
-### 10.4 终端 runtime
+### 10.4 移动端终端删除
 
-实现前必须先完成：
+必须删除并持续禁止：
 
-1. 组件和 bootstrap BOM。
-2. 许可证与源码对应关系。
-3. 目标应用商店政策预审。
-4. ABI、包体和安装空间预算。
-5. RuntimeSupervisor 状态机。
-6. 单实例、进程树回收和异常恢复 PoC。
+1. `android/feature/terminal-runtime/` 与所有 Termux/PTY/NDK 源码。
+2. `terminalRuntimeResearchEnabled`、`TERMINAL_RUNTIME_ENABLED` 和 research APK 构建分支。
+3. Termux BOM/SBOM/NOTICE、组件验证脚本及 CI 安装 NDK 步骤。
+4. Android/JavaScript Bridge 中的终端与终端 Sheet 状态接口。
+5. 移动断点和 Android WebView 对 `ChatTerminal` 的挂载。
 
-任一项未通过，正式包禁用 `feature:terminal-runtime`，Web 终端仍可连接远端服务端终端。
+桌面 Web 的 `ChatTerminal.vue`、terminal WebSocket 协议和服务端终端实现继续保留。
 
 ## 11. 测试与 CI 变更
 

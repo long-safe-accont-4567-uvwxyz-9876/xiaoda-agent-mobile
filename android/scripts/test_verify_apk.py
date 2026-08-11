@@ -26,6 +26,16 @@ class VerifyApkTest(unittest.TestCase):
 
         self.assertTrue(any(".onnx" in issue for issue in verify_apk(apk)))
 
+    def test_rejects_mobile_terminal_frontend_chunk(self) -> None:
+        apk = self.create_apk({"assets/ChatTerminal-deadbeef.js": b"desktop-only"})
+
+        self.assertTrue(any("chatterminal" in issue.lower() for issue in verify_apk(apk)))
+
+    def test_rejects_mobile_terminal_protocol_content(self) -> None:
+        apk = self.create_apk({"assets/feature.js": b"terminal_start"})
+
+        self.assertTrue(any("terminal_start" in issue.lower() for issue in verify_apk(apk)))
+
     def test_rejects_embedded_python_runtime(self) -> None:
         apk = self.create_apk({"lib/arm64-v8a/libpython3.11.so": b"runtime"})
 

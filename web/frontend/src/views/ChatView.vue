@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, nextTick, watch, onMounted, onBeforeUnmount, onActivated, onDeactivated, computed, inject, reactive } from 'vue'
+import { ref, nextTick, watch, onMounted, onBeforeUnmount, onActivated, onDeactivated, computed, inject, reactive, defineAsyncComponent } from 'vue'
 import type { Ref } from 'vue'
 import { NDrawer, NDrawerContent, NButton, NPopconfirm, useMessage } from 'naive-ui'
 import { useChatStore } from '../stores/chat'
@@ -10,7 +10,6 @@ import { getWsClient } from '../api/ws'
 import { renderMarkdown } from '../utils/markdown'
 import { replaceAgentNames } from '../utils/agentNames'
 import ToolCallCard from '../components/chat/ToolCallCard.vue'
-import ChatTerminal from '../components/chat/ChatTerminal.vue'
 import SlashPalette from '../components/chat/SlashPalette.vue'
 import PromptInput from '../components/chat/PromptInput.vue'
 import SumeruIcon from '../components/fx/SumeruIcon.vue'
@@ -24,6 +23,9 @@ import { isAndroidWebView } from '../platform/nativeBridge'
 
 defineOptions({ name: 'ChatView' })
 
+const mobileWebBuild = import.meta.env.VITE_XIAODA_MOBILE_BUILD === '1'
+const ChatTerminal = mobileWebBuild ? null : defineAsyncComponent(() => import('../components/chat/ChatTerminal.vue'))
+
 const chat = useChatStore()
 const auth = useAuthStore()
 const ui = useUiStore()
@@ -31,7 +33,7 @@ const ws = useWorkspaceStore()
 const message = useMessage()
 const particles = inject<Ref<any>>('particles')
 const { isMobile } = useResponsiveShell()
-const terminalAvailable = computed(() => !isMobile.value && !isAndroidWebView())
+const terminalAvailable = computed(() => !mobileWebBuild && !isMobile.value && !isAndroidWebView())
 
 const inputText = ref('')
 const messagesEl = ref<HTMLElement | null>(null)

@@ -1,5 +1,8 @@
 # Android G5-01 工程初始化设计
 
+> **范围更新（2026-08-10）**：本文中的移动端终端模块/契约方案已被 `ADR-MOB2-010` 取代。Android 终端、Termux、PTY、远程 CLI 和终端 Bridge 已删除；桌面 Web 终端保持不变。
+
+
 ## 目标
 
 在 `android/` 下建立可复现构建的 Kotlin DSL Android 工程，使 debug、staging、release 三个变体均能生成 APK，并在提交后由独立 GitHub Actions 工作流执行 lint、JVM test、assemble 和制品上传。

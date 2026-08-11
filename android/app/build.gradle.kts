@@ -37,8 +37,10 @@ webBuildInputs.from(mobileContractFile)
 val buildWebUi by tasks.registering(Exec::class) {
     workingDir(webFrontendDir)
     val output = webDistDir.get().asFile
+    environment("VITE_XIAODA_MOBILE_BUILD", "1")
     commandLine(if (System.getProperty("os.name").startsWith("Windows")) "npm.cmd" else "npm", "exec", "vite", "--", "build", "--outDir", output.absolutePath, "--emptyOutDir")
     inputs.files(webBuildInputs)
+    inputs.property("mobileWebBuild", true)
     outputs.dir(output)
 }
 

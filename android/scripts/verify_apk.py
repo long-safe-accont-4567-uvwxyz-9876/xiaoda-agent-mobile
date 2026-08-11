@@ -17,9 +17,11 @@ FORBIDDEN_PATTERNS = (
     ".pyc",
 )
 
+FORBIDDEN_APK_PATH_PATTERNS = ("chatterminal", "xterm")
+MOBILE_TERMINAL_CONTENT_PATTERNS = ("terminal_start", "terminal_output", "terminal_resize", "terminal_kill")
 FORBIDDEN_CONTENT_PATTERNS = tuple(
     pattern for pattern in FORBIDDEN_PATTERNS if pattern not in {".onnx", ".py", ".pyc"}
-)
+) + MOBILE_TERMINAL_CONTENT_PATTERNS
 
 FORBIDDEN_SECRET_PATTERNS = (
     ("provider_key", re.compile(rb"\bsk-[a-z0-9_-]{20,}\b", re.IGNORECASE)),
@@ -99,7 +101,7 @@ def verify_apk(apk_path: Path) -> list[str]:
         with zipfile.ZipFile(apk_path) as archive:
             for entry in archive.infolist():
                 entry_name = entry.filename.lower()
-                for pattern in FORBIDDEN_PATTERNS:
+                for pattern in FORBIDDEN_PATTERNS + FORBIDDEN_APK_PATH_PATTERNS:
                     if pattern in entry_name:
                         issues.append(f"禁止项出现在路径中: {pattern} -> {entry.filename}")
                 issues.extend(_scan_entry(archive, entry))

@@ -5,7 +5,7 @@
 可直接复制给新的开发上下文：
 
 ```text
-你正在接管 Xiaoda Agent 移动端架构重构。先阅读 docs/mobile/README.md、architecture-v2.md、change-spec-v2.md、implementation-plan-v2.md、acceptance-matrix-v2.md、handoff-runbook.md。不要使用仓库外旧移动方案作为当前事实源。目标架构是：共享 Vue WebUI + 远端 FastAPI/AgentCore + Android 安全系统壳 + 可选远程 CLI 终端承载。必须删除本地 AI、ONNX 本地 Embedding、内置 BGE 和 Ollama；必须保留其余现有功能入口并使用方案 C 分层导航；自定义 OpenAI-compatible Provider 是 P0 优化项。先检查 git 状态和当前任务编号，只执行 implementation-plan-v2.md 中一个未完成任务；先写失败测试，再改实现，再按 acceptance-matrix-v2.md 验证。未经明确要求不要提交或推送。
+你正在接管 Xiaoda Agent 移动端架构重构。先阅读 docs/mobile/README.md、architecture-v2.md、change-spec-v2.md、implementation-plan-v2.md、acceptance-matrix-v2.md、handoff-runbook.md。不要使用仓库外旧移动方案作为当前事实源。目标架构是：共享 Vue WebUI + 远端 FastAPI/AgentCore + Android 安全系统壳；移动端不提供终端，桌面 Web 终端保持不变。必须删除本地 AI、ONNX 本地 Embedding、内置 BGE 和 Ollama；必须保留其余现有功能入口并使用方案 C 分层导航；自定义 OpenAI-compatible Provider 是 P0 优化项。先检查 git 状态和当前任务编号，只执行 implementation-plan-v2.md 中一个未完成任务；先写失败测试，再改实现，再按 acceptance-matrix-v2.md 验证。未经明确要求不要提交或推送。
 ```
 
 ## 2. 接管必做检查
@@ -48,7 +48,7 @@ D:\移动Xiaoda\xiaoda-agent-mobile-implementation-checklist.md
 
 - 后端：Python 3.11+、FastAPI、Pydantic、WebSocket、SQLite。
 - 前端：Vue 3、TypeScript、Vite、Vue Router、Pinia、Naive UI、xterm.js。
-- Android：`android/` 五模块 Kotlin DSL 系统壳已按 ADR-MOB2-007 提前完成 G5-01，使用 JDK 17、Gradle 8.11.1、AGP 8.9.2、Kotlin 2.1.20 和 SDK 35；这不授权开始 G5-02。
+- Android：`android/` 四模块 Kotlin DSL 系统壳已按 ADR-MOB2-007 提前完成 G5-01，使用 JDK 17、Gradle 8.11.1、AGP 8.9.2、Kotlin 2.1.20 和 SDK 35；这不授权开始 G5-02。
 - 产品版本基线：`0.5.70`，实施时先重新确认。
 
 ## 3. 任务领取规则
@@ -106,20 +106,21 @@ D:\移动Xiaoda\xiaoda-agent-mobile-implementation-checklist.md
 - 任务：G4-01。
 - 每次处理 1–3 个相邻页面并保存多视口截图。
 
-### 切片 H：终端和壁纸
+### 切片 H：移动页面和壁纸
 
-- 任务：G4-02 至 G4-04。
-- 终端协议和壁纸数据分别提交。
+- 任务：G4-01、G4-03、G4-04。
+- G4-02 移动终端已按 ADR-MOB2-010 取消；只保留桌面 Web 终端。
 
 ### 切片 I：Android 壳
 
 - 任务：G5-01 至 G5-04。
-- 不等待 Termux 才完成基础移动 App。
+- Android 壳不包含终端 runtime 或终端 Bridge。
 
-### 切片 J：可选终端 runtime
+### 切片 J：移动端终端移除
 
-- 任务：G5-05、G5-06。
-- 许可证/政策未通过时停止，不阻塞无 runtime 的移动 App。
+- G5-05、G5-06 已取消，不再作为阻塞项或条件功能。
+- 验收重点是模块、构建开关、Bridge、移动 UI 和 APK 中不存在终端能力。
+- `web/frontend/src/components/chat/ChatTerminal.vue` 与服务端 terminal 协议仅供桌面 Web 使用。
 
 ## 5. 关键代码入口
 
@@ -130,7 +131,7 @@ D:\移动Xiaoda\xiaoda-agent-mobile-implementation-checklist.md
 | 桌面导航 | `web/frontend/src/components/layout/SideBar.vue` |
 | 顶部状态 | `web/frontend/src/components/layout/TopBar.vue` |
 | Chat | `web/frontend/src/views/ChatView.vue` |
-| Web 终端 | `web/frontend/src/components/chat/ChatTerminal.vue` |
+| 桌面 Web 终端 | `web/frontend/src/components/chat/ChatTerminal.vue`（移动端不得挂载） |
 | 壁纸 | `web/frontend/src/components/layout/AgentBackdrop.vue` |
 | Agent 壁纸编辑 | `web/frontend/src/views/AgentsView.vue` |
 | Provider UI | `web/frontend/src/views/ModelsView.vue` |
@@ -240,9 +241,9 @@ PROVIDER_ALLOWED_HTTPS_PORTS=443,8443
 
 Android 壳不重写 Agent、Models、MCP 等业务 UI。优先适配共享 WebUI。
 
-### 8.7 误称 Termux 为沙箱
+### 8.7 误恢复移动端终端
 
-完整 shell 与应用同 UID 时不是强隔离。文案必须诚实，Agent 受限执行与用户终端分离。
+移动端终端已由 ADR-MOB2-010 正式取消。不得重新加入 Termux、PTY、远程 CLI、终端 Bridge、移动 FAB/Sheet 或 research APK；桌面 Web 终端不受影响。
 
 ### 8.8 隐藏功能代替保留功能
 
@@ -286,7 +287,7 @@ Android 壳不重写 Agent、Models、MCP 等业务 UI。优先适配共享 WebU
 
 - 文档设计：已完成。
 - 生产实现：G1、G2-01、G2-02、G2-03 已完成；G2-04 至 G4 尚未完成。
-- Android 工程：G5-01 按 ADR-MOB2-007 提前完成，五模块和 debug/staging/release 三变体可构建。
-- Termux runtime：仅条件方向，未通过发布门禁。
+- Android 工程：G5-01 按 ADR-MOB2-007 提前完成，四模块和 debug/staging/release 三变体可构建。
+- 移动端终端：已按 ADR-MOB2-010 删除；桌面 Web 终端保留。
 - G2-03 验证：专项 `16 passed`、相关定向 `129 passed`、后端全量 `3058 passed, 8 skipped`、前端生产构建和静态门禁通过，最终安全复审 Critical `0` / Important `0`。
 - 下一步：G2-04 Provider 应用服务；先抽离 repository、credential store 与 runtime registry，再以故障注入实现创建事务。G5-02 必须等待 G2 至 G4 全部通过。

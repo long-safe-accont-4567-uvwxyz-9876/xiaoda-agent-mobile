@@ -63,7 +63,7 @@ Optional Terminal Runtime
 - 不在 Android 端运行模型推理。
 - 不在 Android 端运行 AgentCore、FastAPI、向量数据库或插件宿主。
 - 不保证后台永久 WebSocket。
-- The production mobile shell does not expose terminal UI, a terminal Bridge, or remote CLI autostart. An isolated opt-in Termux research build is allowed only for G5 validation.
+- 不在移动端提供终端 UI、终端 Bridge、Termux、PTY 或远程 CLI 自动启动，也不保留研究构建。
 - 不在本轮重写全部桌面 WebUI 页面。
 
 ## 3. 技术栈
@@ -362,15 +362,15 @@ warnings
 - 移动端不得出现终端 FAB、Sheet、PTY、shell、CLI 自动启动或终端 Bridge。
 - 服务端与桌面 Web 的终端实现不因本决策删除，仍需保持会话归属、进程树回收和限流门禁。
 
-### 9.2 Mobile Termux research runtime
+### 9.2 移动端终端彻底移除
 
-The latest G5 decision on 2026-08-10 reopens G5-05/G5-06 research without changing the production product boundary:
+2026-08-10 的最终产品决定是：移动端不需要终端，研究实现也不再保留。
 
-- The isolated `:feature:terminal-runtime` module freezes official `termux/termux-app` `terminal-emulator` v0.118.3 at commit `5b657c6adf4304e5198951ce815fe0205dcac29c`.
-- Only Java/JNI sources are vendored and rebuilt with Android NDK 22.1.7171670 for `arm64-v8a` and `x86_64`; no Termux APK, package manager, or package bootstrap is embedded.
-- Only `-PterminalRuntimeResearchEnabled=true` adds the module to a debug research APK. Default debug, staging, and release APKs must not contain `libtermux.so`.
-- The production Bridge has no terminal or command methods, and Android WebView does not mount `ChatTerminal`. RuntimeSupervisor and remote-CLI policy remain a native research PoC.
-- Legal, store, installed-size, connected-device process-tree, and app-private native CLI gates must pass before production autostart can be enabled.
+- 删除 `:feature:terminal-runtime`、Termux vendored source、PTY/JNI/NDK shim 和 RuntimeSupervisor。
+- 删除 research APK、Gradle opt-in 属性、组件验证脚本、BOM/SBOM/NOTICE 与 CI NDK 步骤。
+- Bridge 不包含终端、运行时、Sheet 状态或任意命令执行方法。
+- Android Vite 构建通过 `VITE_XIAODA_MOBILE_BUILD=1` 在编译期排除 `ChatTerminal`/xterm chunk；移动断点和 Android WebView 也不挂载终端。桌面 Web 终端及服务端 terminal 协议保持不变。
+- CI 以四模块工程、源码扫描和三变体 APK 扫描阻止移动终端复活。
 
 ## 10. 安全边界
 
@@ -415,10 +415,10 @@ The latest G5 decision on 2026-08-10 reopens G5-05/G5-06 research without changi
 - 决策：OpenAI-compatible Provider 是主要扩展入口。
 - 后果：Provider 事务、安全出站、诊断和测试成为 P0。
 
-### ADR-MOB2-006 Optional terminal carrier (superseded)
+### ADR-MOB2-006 可选终端承载（已废止）
 
-- Status: first superseded by ADR-MOB2-008, then narrowed to research-only by ADR-MOB2-009.
-- Current result: production mobile exposes no terminal; only the isolated runtime and release-gate evidence remain.
+- 状态：被 ADR-MOB2-008、ADR-MOB2-009 和最终的 ADR-MOB2-010 依次取代。
+- 当前结论：移动端不提供、也不研究终端承载。
 
 ### ADR-MOB2-007 Android 骨架可提前并行
 
@@ -428,18 +428,23 @@ The latest G5 decision on 2026-08-10 reopens G5-05/G5-06 research without changi
 - 限制：不得开始 G5-02，不得依赖未冻结的 Provider、导航、移动页面或壁纸协议；G1-08 与 G2 至 G4 的阶段门禁仍然有效。
 - 后果：G5-01 可独立关闭，但 G5 阶段不得继续推进，直到前置阶段按原顺序全部通过。
 
-### ADR-MOB2-008 Mobile terminal removal (superseded)
+### ADR-MOB2-008 移动端终端移除
 
-- Status: superseded by ADR-MOB2-009 on 2026-08-10.
-- Still valid: production mobile UI/Bridge exposes no terminal; desktop Web terminal and server protocol remain unchanged.
+- 状态：原决定有效，最终范围由 ADR-MOB2-010 明确为“研究实现也删除”。
+- 决策：生产移动 UI/Bridge 不暴露终端；桌面 Web 终端和服务端协议不变。
 
-### ADR-MOB2-009 Isolated open-source Termux runtime research
+### ADR-MOB2-009 开源 Termux 隔离研究（已废止）
 
-- Status: accepted on 2026-08-10.
-- Decision: use official `termux/termux-app` `terminal-emulator` v0.118.3 at commit `5b657c6adf4304e5198951ce815fe0205dcac29c`, with a frozen source manifest, Apache-2.0 exception text, NDK 22.1.7171670, and two 64-bit ABIs.
-- Packaging: opt-in debug research APK only; default debug, staging, and release exclude the component.
-- Security: no terminal Bridge, no bootstrap, no local Agent/Web service; remote CLI accepts only remote HTTPS/WSS endpoints and provider keys are rejected from the runtime environment.
-- Release: production autostart remains disabled pending legal, store, connected-device, installed-size, and approved native CLI evidence.
+- 状态：被 ADR-MOB2-010 取代。
+- 原决策：允许 opt-in debug research APK 验证 Termux terminal-emulator。
+- 废止原因：产品明确决定移动端不需要终端，不再为未进入产品的能力维护源码、NDK、供应链和 CI 成本。
+
+### ADR-MOB2-010 移动端终端研究撤销
+
+- 状态：接受（2026-08-10）。
+- 决策：删除移动端终端 UI、Termux/PTY runtime、远程 CLI PoC、研究 APK、供应链材料和全部终端 Bridge/Sheet 接口。
+- 保留：桌面 Web 的 `ChatTerminal`、terminal WebSocket 协议和服务端终端能力。
+- 后果：G4-02、G5-05、G5-06 标记为取消；移动端验收改为“能力不存在且不可复活”。
 
 ## 12. 架构风险登记
 
@@ -449,7 +454,7 @@ The latest G5 decision on 2026-08-10 reopens G5-05/G5-06 research without changi
 | Provider DNS rebinding | Critical | 安全出站客户端闭环 | 无真实连接测试不得发布 |
 | Provider 三份状态分裂 | Critical | 应用服务事务与故障注入 | 无回滚测试不得发布 |
 | WebView Bridge 权限扩大 | High | 最小白名单、来源校验 | 可执行任意命令则停止 |
-| Termux research runtime enters a production APK | High | Research-only dependency, Bridge allowlist, ABI/license verifier, APK scan | Block if default debug/staging/release contains `libtermux.so` or a terminal API |
+| 移动端终端能力误复活 | High | 四模块契约、Bridge allowlist、源码/APK 扫描 | 任一终端模块、API、NDK 或研究产物出现则阻断 |
 | 全功能页面移动适配遗漏 | High | 路由覆盖矩阵 | 任一路由不可达不得完成 |
 | 壁纸导致可读性不足 | Medium | 局部遮罩和对比度测试 | 关键文字不达标则阻断 UI |
 | 后台连接不可靠 | Medium | 明确前台连接策略 | 禁止承诺永久后台在线 |

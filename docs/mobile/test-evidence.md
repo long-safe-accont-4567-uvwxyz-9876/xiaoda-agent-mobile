@@ -1001,16 +1001,24 @@ Evidence:
 - Legacy records containing only a wallpaper URL receive defaults without changing the URL.
 - API validation rejects out-of-range focus/overlay values and unknown motion modes.
 - Main-agent writes use `ConfigService.set_many()` so a save failure rolls back all wallpaper fields.
+- Custom Agent configuration defines and persists all wallpaper metadata; atomic JSON persistence and a complete runtime/file snapshot prevent mixed wallpaper updates from remaining partially applied when saving fails.
 - Upload writes the new file first and removes older uploads only after configuration succeeds; failure removes the new file and keeps the previous wallpaper.
 - The Agent editor supports click-to-focus, X/Y sliders, overlay strength, motion choice, and top/content/bottom obstruction preview.
 
 Command:
 
 ```powershell
-py -3.12 -m pytest tests/test_g4_wallpaper_config.py -q
+python -m pytest tests/test_g4_wallpaper_config.py -q --tb=short
+python -m pytest tests/test_g4_wallpaper_config.py tests/test_g4_mobile_frontend_contract.py -q --tb=short
+python -m ruff check agent_dispatcher.py web/agent_registry.py web/wallpaper_config.py tests/test_g4_wallpaper_config.py
 ```
 
-Result: `9 passed`.
+Results:
+
+- Wallpaper data and rollback suite: `13 passed, 2 environment warnings`.
+- Wallpaper plus G4 frontend contracts: `17 passed, 2 environment warnings`.
+- Ruff: `All checks passed!`.
+- The two warnings are the known unavailable pytest timeout-plugin configuration warnings.
 
 ### G4-04 Wallpaper rendering
 
@@ -1206,3 +1214,29 @@ Remaining P0 blockers:
 - arm64 library: 9,008 bytes, SHA-256 `007b5ea44c19c89801830f0bbb76460736bd4beb7ec1b11420ea0a6843e5918d`; x86_64 library: 9,248 bytes, SHA-256 `024149e020c3f86edb0f3b483fd9a980019d359506eabe681d0fafae14531a7b`.
 - Research APK: 10,243,397 bytes, SHA-256 `0267da0b083cd1073386c9f0563d492973eac8e8ecde21b2b763febc8f09c002`; default debug/staging/release contain no Termux library.
 - Remaining blockers: no local device/AVD; legal, store, installed-size, real process-tree, and app-private native remote CLI evidence are incomplete.
+
+## 移动端终端最终移除（ADR-MOB2-010）
+
+日期：2026-08-10
+
+状态：PASS。G4-02、G5-05、G5-06 已取消，不再是 BLOCKED 条件功能；以下记录取代本文更早的 Termux research/blocked 状态，但保留旧段落作为历史证据。
+
+最终改动：
+
+- 删除整个 `android/feature/terminal-runtime/`、Termux vendored source、PTY/JNI/NDK shim、RuntimeSupervisor 和相关 JVM/AndroidTest。
+- 删除 `verify_termux_component.py`、组件 BOM/SBOM/NOTICE、research APK、NDK 安装、组件验证和 artifact 上传 CI。
+- Android Gradle 工程只包含 `:app`、`:core:webcontainer`、`:core:security`、`:core:bridge-api`。
+- Android/JavaScript Bridge 不包含终端或 `setSheetOpen`；Android 返回逻辑只处理 Web 历史与 Activity 退出。
+- `ChatTerminal` 改为桌面条件下异步加载；Android Vite 构建设置 `VITE_XIAODA_MOBILE_BUILD=1`，最终 Android web assets/APK 不包含 `ChatTerminal`/xterm chunk 或 terminal WebSocket 协议字符串。移动 Sheet/VisualViewport/拖拽代码已删除，桌面 Web/服务端终端未删除。
+
+最终验证：
+
+- Android Python contracts：`37 tests`，PASS；新增 APK 终端 chunk/协议防复活用例。
+- Frontend：TypeScript PASS；Vitest `50 passed`；production build PASS。仅保留既有 large-chunk 警告和测试路由 warning。
+- Android WebView auth/middleware：`27 passed`；目标 Ruff 检查 PASS。
+- Android：最终执行 `lint test assembleDebug assembleStaging assembleRelease :app:assembleDebugAndroidTest`，`452 actionable tasks`，PASS；AndroidTest APK 编译通过。关闭默认 configuration cache，避免自定义 Web assets 任务导致 CI 序列化失败。
+- `gradlew projects` 仅列出四个应用/核心模块；本机无设备/AVD，因此未本地执行 `connectedCheck`，CI 仍保留该门禁。
+- Web assets 与 Android 源码/APK 扫描：PASS；debug、staging、release 三个 APK 均无移动终端 runtime。
+- Debug APK：9,765,097 bytes，SHA-256 `9DA78252BFB3A79B9D1810608F01B532B7BDAFF33394F7ED2FF840AF3FA80324`。
+- Staging APK：8,429,257 bytes，SHA-256 `961D96CDB2E30F14C4F668C2B3B68024470AC66BC172329EE6B5137AC66B843E`。
+- Release APK：6,337,631 bytes，SHA-256 `3D9DC94EE8CAC5DA74B98832DFE6FF71711142A3D7AE462B51D6E735120F5D6A`。

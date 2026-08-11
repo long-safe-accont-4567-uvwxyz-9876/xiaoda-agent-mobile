@@ -6,6 +6,7 @@ import { getWsClient } from '../../api/ws'
 import { get } from '../../api'
 import type { WsEvent } from '../../api/ws'
 import { t, getLang } from '../../i18n'
+import { trapFocus } from '../../utils/focusTrap'
 
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
@@ -19,6 +20,22 @@ const ws = getWsClient()
 const panelOpen = ref(false)
 const showNewDialog = ref(false)
 const newShellType = ref('bash')
+const panelDialog = ref<HTMLElement | null>(null)
+const terminalFab = ref<HTMLButtonElement | null>(null)
+let panelOpener: HTMLElement | null = null
+
+function fitActiveSession(focus = true) {
+  const session = activeSession.value
+  if (!session?.alive) return
+  try {
+    session.fitAddon.fit()
+    const dimensions = session.fitAddon.proposeDimensions()
+    if (dimensions) {
+      ws.send({ type: 'terminal_resize', term_sid: session.id, cols: dimensions.cols, rows: dimensions.rows })
+    }
+    if (focus) session.terminal.focus()
+  } catch {}
+}
 
 // ── OS 检测（优先服务端 API，fallback 到客户端 navigator） ──
 function _detectClientOs(): string {
@@ -56,6 +73,7 @@ interface TermSession {
   alive: boolean
   container: HTMLDivElement | null
   resizeObserver?: ResizeObserver
+  status: 'starting' | 'running' | 'exited' | 'error' | 'disconnected'
 }
 
 const sessions = ref<TermSession[]>([])
@@ -64,6 +82,11 @@ const activeSessionId = ref('')
 const activeSession = computed(() =>
   sessions.value.find(s => s.id === activeSessionId.value) || null
 )
+const aliveSessionCount = computed(() => sessions.value.filter(session => session.alive).length)
+const fabLabel = computed(() => `${terminalTitle.value} (${aliveSessionCount.value})`)
+const statusAnnouncement = computed(() => activeSession.value
+  ? `${activeSession.value.name}: ${activeSession.value.status}`
+  : String(t('chatTerminal.empty')))
 
 const shellOptions = computed(() => isWindows.value
   ? [
@@ -119,7 +142,45 @@ function onTerminalExit(e: WsEvent) {
   const session = sessions.value.find(s => s.id === termSid)
   if (!session) return
   session.alive = false
+  session.status = 'exited'
   session.terminal.writeln(`\r\n\x1b[38;2;117;106;95m[exited with code ${(e.returncode as number) || 0}]\x1b[0m`)
+}
+
+function onTerminalStarted(e: WsEvent) {
+  const session = sessions.value.find(s => s.id === e.term_sid)
+  if (!session) return
+  session.alive = true
+  session.status = 'running'
+}
+
+function onTerminalError(e: WsEvent) {
+  const session = sessions.value.find(s => s.id === e.term_sid)
+  if (!session) return
+  session.alive = false
+  session.status = 'error'
+  session.terminal.writeln(`\r\n\x1b[38;2;217;106;95m[${String(e.error || e.code || 'terminal error')}]\x1b[0m`)
+}
+
+function onWsDisconnected() {
+  for (const session of sessions.value) {
+    if (!session.alive) continue
+    session.alive = false
+    session.status = 'disconnected'
+    session.resizeObserver?.disconnect()
+    session.terminal.writeln('\r\n\x1b[38;2;217;106;95m[disconnected]\x1b[0m')
+  }
+}
+
+function onWsConnected() {
+  const disconnectedSessions = sessions.value.filter(session => session.status === 'disconnected')
+  for (const session of disconnectedSessions) {
+    session.resizeObserver?.disconnect()
+    session.terminal.dispose()
+  }
+  sessions.value = sessions.value.filter(session => session.status !== 'disconnected')
+  if (!sessions.value.some(session => session.id === activeSessionId.value)) {
+    activeSessionId.value = sessions.value[0]?.id || ''
+  }
 }
 
 // ── 粘贴处理 ──
@@ -162,17 +223,28 @@ async function handlePaste() {
 onMounted(() => {
   ws.on('terminal_output', onTerminalOutput)
   ws.on('terminal_exit', onTerminalExit)
+  ws.on('terminal_started', onTerminalStarted)
+  ws.on('terminal_error', onTerminalError)
+  ws.on('ws_disconnected', onWsDisconnected)
+  ws.on('ws_connected', onWsConnected)
   document.addEventListener('keydown', _onDocKeyDown)
 })
 
 onBeforeUnmount(() => {
   ws.off('terminal_output', onTerminalOutput)
   ws.off('terminal_exit', onTerminalExit)
+  ws.off('terminal_started', onTerminalStarted)
+  ws.off('terminal_error', onTerminalError)
+  ws.off('ws_disconnected', onWsDisconnected)
+  ws.off('ws_connected', onWsConnected)
   document.removeEventListener('keydown', _onDocKeyDown)
-  for (const s of sessions.value) {
-    s.resizeObserver?.disconnect()
-    s.terminal.dispose()
+  for (const session of sessions.value) {
+    if (session.alive) ws.send({ type: 'terminal_kill', term_sid: session.id })
+    session.alive = false
+    session.resizeObserver?.disconnect()
+    session.terminal.dispose()
   }
+  sessions.value = []
 })
 
 // ── 会话管理 ──
@@ -200,7 +272,7 @@ function createSession(shell: string) {
 
   const session: TermSession = {
     id, name: `${shellLabels[shell] || shell} #${sessions.value.length + 1}`,
-    shell, terminal, fitAddon, alive: true, container: null,
+    shell, terminal, fitAddon, alive: true, container: null, status: 'starting',
   }
   sessions.value.push(session)
   activeSessionId.value = id
@@ -266,7 +338,7 @@ function mountTerminal(session: TermSession, shell: string, retries = 0) {
   })
 }
 
-function closeSession(id: string) {
+function closeSessionNow(id: string) {
   const idx = sessions.value.findIndex(s => s.id === id)
   if (idx < 0) return
   const s = sessions.value[idx]
@@ -280,6 +352,44 @@ function closeSession(id: string) {
       ? sessions.value[Math.max(0, idx - 1)].id
       : ''
   }
+}
+
+function requestCloseSession(id: string) {
+  const session = sessions.value.find(item => item.id === id)
+  if (session?.alive && !window.confirm(String(t('chatTerminal.confirmKill')))) return
+  closeSessionNow(id)
+}
+
+function closePanel() {
+  panelOpen.value = false
+}
+
+function openPanel(event: MouseEvent) {
+  panelOpener = event.currentTarget as HTMLElement
+  panelOpen.value = true
+}
+
+function handlePanelKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    closePanel()
+    return
+  }
+  if (panelDialog.value) trapFocus(panelDialog.value, event)
+}
+
+function handleTabKeydown(event: KeyboardEvent, id: string) {
+  if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+  event.preventDefault()
+  const index = sessions.value.findIndex(session => session.id === id)
+  if (index < 0) return
+  let nextIndex = index
+  if (event.key === 'ArrowLeft') nextIndex = (index - 1 + sessions.value.length) % sessions.value.length
+  if (event.key === 'ArrowRight') nextIndex = (index + 1) % sessions.value.length
+  if (event.key === 'Home') nextIndex = 0
+  if (event.key === 'End') nextIndex = sessions.value.length - 1
+  switchSession(sessions.value[nextIndex].id)
+  nextTick(() => document.getElementById(`term-tab-${sessions.value[nextIndex].id}`)?.focus())
 }
 
 function switchSession(id: string) {
@@ -302,6 +412,13 @@ function refocusTerminal() {
 
 watch(panelOpen, (v) => {
   nextTick(() => {
+    if (v) panelDialog.value?.focus()
+    else {
+      const opener = panelOpener
+      panelOpener = null
+      if (opener?.isConnected) opener.focus()
+      else terminalFab.value?.focus()
+    }
     const s = activeSession.value
     if (!s) return
     const el = document.getElementById('term-viewport-' + s.id)
@@ -340,15 +457,21 @@ function onPanelOpened() {
   <Teleport to="body">
     <!-- 右下角浮动按钮 -->
     <transition name="fab-scale">
-      <div v-if="!panelOpen" class="term-fab" @click="panelOpen = true" :title="terminalTitle">
-        <span class="fab-icon">▎>_</span>
-        <span v-if="sessions.some(s => s.alive)" class="fab-dot"></span>
-      </div>
+      <button v-if="!panelOpen" ref="terminalFab" class="term-fab" type="button" @click="openPanel"
+              :title="terminalTitle" :aria-label="fabLabel">
+        <span class="fab-icon" aria-hidden="true">&#9614;&gt;_</span>
+        <span v-if="sessions.some(s => s.alive)" class="fab-dot" aria-hidden="true"></span>
+      </button>
     </transition>
 
     <!-- 右侧滑出面板（v-show 保持 DOM 存活，关闭后重新打开内容不丢失） -->
+    <div v-show="panelOpen" class="term-sheet-scrim" aria-hidden="true" @click="closePanel"></div>
+
     <transition name="panel-slide" @after-enter="onPanelOpened">
-      <div v-show="panelOpen" class="term-panel">
+      <section v-show="panelOpen" ref="panelDialog" class="term-panel"
+               role="dialog" aria-modal="true" :aria-label="terminalTitle" tabindex="-1"
+               @keydown="handlePanelKeydown">
+        <div class="sr-only" role="status" aria-live="polite">{{ statusAnnouncement }}</div>
         <!-- 标题栏 -->
         <div class="panel-header">
           <span class="header-title">
@@ -356,26 +479,30 @@ function onPanelOpened() {
             {{ terminalTitle }}
           </span>
           <span class="header-actions">
-            <button v-if="activeSession" class="header-btn" @click="handlePaste" :title="t('chatTerminal.paste')">📋</button>
+            <button v-if="activeSession" class="header-btn" type="button" @click="handlePaste" :title="t('chatTerminal.paste')" :aria-label="String(t('chatTerminal.paste'))">Paste</button>
             <span class="header-os">{{ isWindows ? 'Windows' : 'Linux' }}</span>
           </span>
         </div>
 
         <!-- Tab 栏 -->
         <div class="panel-tabs">
-          <div class="tabs-scroll">
-            <div v-for="s in sessions" :key="s.id"
+          <div class="tabs-scroll" role="tablist" :aria-label="terminalTitle">
+            <div v-for="s in sessions" :id="`term-tab-${s.id}`" :key="s.id"
                  class="tab-item" :class="{ active: s.id === activeSessionId, alive: s.alive }"
-                 @click="switchSession(s.id)">
+                 role="tab" :aria-selected="s.id === activeSessionId"
+                 :aria-controls="`term-viewport-${s.id}`"
+                 :tabindex="s.id === activeSessionId ? 0 : -1"
+                 @click="switchSession(s.id)" @keydown="handleTabKeydown($event, s.id)">
               <span class="tab-icon">{{ s.shell === 'bash' ? '$' : s.shell === 'zsh' ? '%' : s.shell === 'python' ? '»' : s.shell === 'cmd' ? '\\' : '>' }}</span>
               <span class="tab-name">{{ s.name }}</span>
-              <span v-if="!s.alive" class="tab-dead">dead</span>
-              <button class="tab-close" @click.stop="closeSession(s.id)" :title="t('chatTerminal.close')">✕</button>
+              <span v-if="s.status !== 'running'" class="tab-dead">{{ s.status }}</span>
+              <button class="tab-close" @click.stop="requestCloseSession(s.id)" :title="t('chatTerminal.close')"
+                      :aria-label="`${String(t('chatTerminal.close'))}: ${s.name}`">✕</button>
             </div>
           </div>
           <div class="tab-actions">
-            <button class="tab-add" @click="showNewDialog = !showNewDialog" :title="t('chatTerminal.newTerm')">+</button>
-            <button class="tab-close-panel" @click="panelOpen = false" :title="t('chatTerminal.close')">✕</button>
+            <button class="tab-add" type="button" @click="showNewDialog = !showNewDialog" :title="t('chatTerminal.newTerm')" :aria-label="String(t('chatTerminal.newTerm'))">+</button>
+            <button class="tab-close-panel" type="button" @click="closePanel" :title="t('chatTerminal.close')" :aria-label="String(t('chatTerminal.close'))">&#10005;</button>
           </div>
         </div>
 
@@ -383,10 +510,11 @@ function onPanelOpened() {
         <transition name="dialog-slide">
           <div v-if="showNewDialog" class="new-term-dialog">
             <div class="dialog-title">{{ t('chatTerminal.newTermType') }}</div>
-            <div class="shell-grid">
+            <div class="shell-grid" role="radiogroup" :aria-label="String(t('chatTerminal.newTermType'))">
               <button v-for="opt in shellOptions" :key="opt.value"
                       class="shell-option"
                       :class="{ selected: newShellType === opt.value }"
+                      role="radio" :aria-checked="newShellType === opt.value"
                       @click="newShellType = opt.value">
                 <span class="shell-icon">{{ opt.icon }}</span>
                 <span class="shell-label">{{ opt.label }}</span>
@@ -410,10 +538,11 @@ function onPanelOpened() {
           <div v-for="s in sessions" :key="s.id"
                :id="'term-viewport-' + s.id"
                class="term-viewport"
+               role="tabpanel" :aria-labelledby="`term-tab-${s.id}`"
                :class="{ visible: s.id === activeSessionId }">
           </div>
         </div>
-      </div>
+      </section>
     </transition>
   </Teleport>
 </template>
@@ -422,10 +551,10 @@ function onPanelOpened() {
 /* ── 浮动按钮 ── */
 .term-fab {
   position: fixed;
-  right: 20px;
-  bottom: 80px;
-  width: 44px;
-  height: 44px;
+  right: max(20px, env(safe-area-inset-right));
+  bottom: calc(76px + env(safe-area-inset-bottom));
+  width: 48px;
+  height: 48px;
   border-radius: 12px;
   background: rgba(8, 18, 12, 0.9);
   border: 1px solid rgba(127, 214, 80, 0.25);
@@ -473,6 +602,14 @@ function onPanelOpened() {
   flex-direction: column;
   z-index: 999;
   box-shadow: -8px 0 32px rgba(0, 0, 0, 0.5);
+  overscroll-behavior: contain;
+}
+.term-sheet-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 998;
+  background: rgba(0, 0, 0, 0.42);
+  backdrop-filter: blur(2px);
 }
 .panel-slide-enter-active { transition: transform 0.4s cubic-bezier(0.32, 0.72, 0, 1); }
 .panel-slide-leave-active { transition: transform 0.3s cubic-bezier(0.32, 0.72, 0, 1); }
@@ -724,5 +861,11 @@ function onPanelOpened() {
 }
 .empty-btn:hover { background: rgba(127, 214, 80, 0.15); border-color: var(--dendro, #7fd650); }
 
-@media (max-width: 600px) { .term-panel { width: 100vw; } }
+@media (prefers-reduced-motion: reduce) {
+  .panel-slide-enter-active, .panel-slide-leave-active,
+  .fab-scale-enter-active, .fab-scale-leave-active,
+  .dialog-slide-enter-active, .dialog-slide-leave-active { transition-duration: 0.01ms; }
+  .empty-icon { animation: none; }
+}
+
 </style>

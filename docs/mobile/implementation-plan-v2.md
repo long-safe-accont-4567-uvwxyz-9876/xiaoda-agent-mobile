@@ -57,7 +57,7 @@
 
 - [x] 阅读 `docs/mobile` 六份文档。
 - [x] 确认旧移动方案已被 v2 取代。
-- [x] Production mobile UI/Bridge remains terminal-free; Termux exists only as the isolated ADR-MOB2-009 research runtime.
+- [x] 移动端终端及其研究 runtime 均已取消；桌面 Web 终端保留（ADR-MOB2-010）。
 - [x] 确认本地 AI 与 Ollama 都要删除。
 - [x] 确认所有其他功能入口保留。
 
@@ -359,7 +359,7 @@
 
 **验收**：旧用户壁纸不丢失，新字段可回滚。
 
-**Closure evidence**: `wallpaper_focus`, `wallpaper_overlay`, and `wallpaper_motion` have validated defaults; legacy URL-only records are preserved; main-agent writes use atomic `ConfigService.set_many()` rollback; failed uploads retain the previous file.
+**关闭证据**：`wallpaper_focus`、`wallpaper_overlay` 和 `wallpaper_motion` 具备稳定默认值与范围校验；旧 URL-only 记录保持兼容。主体通过一次 `ConfigService.set_many()` 原子提交四字段；自定义 Agent 补齐字段模型、原子 JSON 持久化和完整运行时/文件快照，保存失败不留下混合更新；上传失败删除新文件并保留旧配置。专项 `13 passed`，与 G4 前端契约合并 `17 passed`，Ruff 通过，详见 `test-evidence.md`。
 
 ### G4-04 壁纸渲染
 
@@ -428,25 +428,23 @@
 
 **关闭证据**：SAF 文件选择已由 `PromptInput` Bridge adapter 消费，并将受检字节恢复为 `File` 后复用图片/文档 multipart 上传；系统分享、`xiaoda://app` 深链、Web 历史返回、WebView save/restore、网络回调、Android 13 通知权限和前后台连接策略已接入；无 Service、WakeLock 或后台保活，详见 `test-evidence.md`。
 
-### G5-05 Termux runtime research gate (engineering complete, release blocked)
+### G5-05 移动端终端 runtime（已取消）
 
-- [x] Freeze official `termux/termux-app` `terminal-emulator` v0.118.3 at commit `5b657c6adf4304e5198951ce815fe0205dcac29c`; source archive SHA-256 `debd53a911c30f578c5b3600e5609a22b576491b20ce632e155457596ee1d291`.
-- [x] Freeze the Apache-2.0 exception, license text, SOURCE_MANIFEST, BOM, SPDX SBOM, and NOTICE.
-- [x] Rebuild with NDK 22.1.7171670 for `arm64-v8a` and `x86_64`; AAR 117,513 bytes and native libraries 9,008 / 9,248 bytes.
-- [x] Implement PTY launch, app-private command policy, process-group cleanup, RuntimeSupervisor, research-only APK packaging, and CI verification.
-- [!] Legal, target-store, installed-size, and connected-device process-tree evidence is still missing; production packaging stays disabled.
+- [-] 不再冻结、引入或审核 Termux/bootstrap 组件。
+- [x] 删除 `:feature:terminal-runtime`、Termux 源码、PTY/JNI/NDK shim、RuntimeSupervisor、BOM/SBOM/NOTICE 和组件验证脚本。
+- [x] 删除 research APK、NDK 安装、组件验证和 artifact 上传 CI。
+- [x] Gradle 工程仅保留 `:app` 与三个 `:core` 模块。
 
-Evidence: the default three APKs contain no `libtermux.so`; the two-ABI research APK SHA-256 is `0267da0b083cd1073386c9f0563d492973eac8e8ecde21b2b763febc8f09c002`. Engineering research is complete; release remains BLOCKED.
+**验收**：源码树、Gradle、CI 和 debug/staging/release APK 均不存在移动终端 runtime。
 
-### G5-06 Remote CLI autostart (PoC complete, production integration blocked)
+### G5-06 远程 CLI 自动启动（已取消）
 
-- [x] Accept only remote HTTPS/WSS and reject local/private destinations, unsafe URL forms, and provider-key environment variables.
-- [x] Inject endpoint, nonce, and protocol version; JVM tests cover single-instance launch, user stop, process-group cleanup, and finite exponential backoff.
-- [!] The app-private native remote CLI is not frozen, and instrumentation is compiled but awaits emulator CI / real-device execution.
+- [-] 不实现或保留远程 CLI 自动启动、nonce/协议握手、崩溃退避、状态页或进程树管理 PoC。
+- [x] Bridge allowlist 不包含 `openTerminal`、`getRuntimeStatus`、`stopRuntime`、`setSheetOpen` 或通用命令执行接口。
+- [x] Android Vite 构建在编译期排除 `ChatTerminal`/xterm chunk，移动断点和 Android WebView 也不挂载终端。
+- [x] 桌面 Web 终端和服务端 terminal 协议保持不变。
 
-Evidence: Android WebView mounts no terminal, the Bridge has no terminal methods, and staging/release keep `TERMINAL_RUNTIME_ENABLED=false`. Production remains BLOCKED pending the CLI binary, legal/store approvals, and connected-device evidence.
-
-**G5 execution refresh (2026-08-10)**: Android Python `39 tests` and Ruff passed; the full Android gate passed with `516 actionable tasks`; Termux JVM/AndroidTest compilation and research APK build passed with `166 actionable tasks`; component, source-tree, four-APK, and two-ABI verification passed. This host has no device/AVD, so `connectedCheck` remains a blocking CI gate.
+**取消证据**：2026-08-10 用户明确要求移动端砍掉终端。ADR-MOB2-010 废止 ADR-MOB2-009 的研究例外，G5-05/G5-06 从 BLOCKED 改为 CANCELED。
 
 ## G6 集成、发布和回滚
 

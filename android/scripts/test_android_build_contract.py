@@ -110,19 +110,20 @@ class AndroidBuildContractTest(unittest.TestCase):
         self.assertIn(".isTrusted(BuildConfig.WEB_ASSET_VERSION)", activity)
         self.assertLess(activity.index(".isTrusted(BuildConfig.WEB_ASSET_VERSION)"), activity.index("webView.loadUrl(BundledAssetLoader.START_URL)"))
 
-    def test_termux_component_is_opt_in_research_only(self):
+    def test_mobile_terminal_feature_is_absent(self):
         settings = (ROOT / "settings.gradle.kts").read_text(encoding="utf-8")
         app_build = (ROOT / "app" / "build.gradle.kts").read_text(encoding="utf-8")
         contract = (ROOT / "core" / "bridge-api" / "src" / "main" / "kotlin" / "com" / "xiaoda" / "agent" / "bridge" / "BridgeContract.kt").read_text(encoding="utf-8")
         workflow = (ROOT.parent / ".github" / "workflows" / "android-apk.yml").read_text(encoding="utf-8")
-        self.assertIn('include(":feature:terminal-runtime")', settings)
-        self.assertIn("terminalRuntimeResearchEnabled", app_build)
-        self.assertIn('add("debugRuntimeOnly", project(":feature:terminal-runtime"))', app_build)
-        self.assertTrue((ROOT / "feature" / "terminal-runtime").is_dir())
-        for name in ("openTerminal", "getRuntimeStatus", "stopRuntime"):
-            self.assertNotIn(f'"{name}"', contract)
-        for marker in ("ndk;22.1.7171670", "terminalRuntimeResearchEnabled=true", "verify_termux_component.py"):
-            self.assertIn(marker, workflow)
+
+        self.assertNotIn('include(":feature:terminal-runtime")', settings)
+        self.assertNotIn("terminalRuntimeResearchEnabled", app_build)
+        self.assertNotIn("TERMINAL_RUNTIME_ENABLED", app_build)
+        self.assertFalse((ROOT / "feature" / "terminal-runtime").exists())
+        for method in ("openTerminal", "getRuntimeStatus", "stopRuntime", "setSheetOpen"):
+            self.assertNotIn(f'"{method}"', contract)
+        for marker in ("Termux", "termux", "terminal-runtime", "ndk;22.1.7171670", "verify_termux_component.py"):
+            self.assertNotIn(marker, workflow)
 
     def test_remote_runtime_config_is_injected_before_frontend_modules(self):
         activity = (ROOT / "app" / "src" / "main" / "kotlin" / "com" / "xiaoda" / "agent" / "MainActivity.kt").read_text(encoding="utf-8")
@@ -151,6 +152,7 @@ class AndroidBuildContractTest(unittest.TestCase):
         activity = (ROOT / "app" / "src" / "main" / "kotlin" / "com" / "xiaoda" / "agent" / "MainActivity.kt").read_text(encoding="utf-8")
         contract = (ROOT / "core" / "bridge-api" / "src" / "main" / "kotlin" / "com" / "xiaoda" / "agent" / "bridge" / "BridgeContract.kt").read_text(encoding="utf-8")
         chat_view = (ROOT.parent / "web" / "frontend" / "src" / "views" / "ChatView.vue").read_text(encoding="utf-8")
+        terminal = (ROOT.parent / "web" / "frontend" / "src" / "components" / "chat" / "ChatTerminal.vue").read_text(encoding="utf-8")
 
         self.assertNotIn('"setSheetOpen"', contract)
         self.assertNotIn("sheetOpen", activity)
@@ -160,6 +162,12 @@ class AndroidBuildContractTest(unittest.TestCase):
         self.assertIn("setIntent(intent)", activity)
         self.assertIn('ChatTerminal v-if="terminalAvailable"', chat_view)
         self.assertIn("!isMobile.value && !isAndroidWebView()", chat_view)
+        self.assertIn("VITE_XIAODA_MOBILE_BUILD", chat_view)
+        self.assertIn("!mobileWebBuild && !isMobile.value && !isAndroidWebView()", chat_view)
+        self.assertIn("defineAsyncComponent(() => import('../components/chat/ChatTerminal.vue'))", chat_view)
+        self.assertIn('environment("VITE_XIAODA_MOBILE_BUILD", "1")', (ROOT / "app" / "build.gradle.kts").read_text(encoding="utf-8"))
+        for mobile_terminal_marker in ("sheetHeight", "visualViewport", "isMobileViewport", "@media (max-width: 767px)"):
+            self.assertNotIn(mobile_terminal_marker, terminal)
 
     def test_mock_webserver_activity_integration_is_present(self):
         catalog = (ROOT / "gradle" / "libs.versions.toml").read_text(encoding="utf-8")
