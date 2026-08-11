@@ -30,7 +30,7 @@ class MainActivityLocalIntegrationTest {
                 scenario.onActivity { activity ->
                     val field = MainActivity::class.java.getDeclaredField("webView").apply { isAccessible = true }
                     val webView = field.get(activity) as android.webkit.WebView
-                    webView.evaluateJavascript("document.body.innerText.includes('本地优先的小达')") { result ->
+                    webView.evaluateJavascript("document.querySelector('.local-app') !== null") { result ->
                         rendered.set(result == "true")
                         evaluated.countDown()
                     }
