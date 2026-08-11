@@ -60,11 +60,19 @@ jobs:
       - name: Lint, test, and assemble variants
         run: ./gradlew lint test assembleDebug assembleStaging assembleRelease
 
+      - name: Enable KVM acceleration
+        run: |
+          if [ -e /dev/kvm ]; then
+            sudo chmod 666 /dev/kvm
+          fi
+
       - name: Run connected Android tests
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 35
           arch: x86_64
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
           working-directory: android
           script: ./gradlew connectedCheck
 
