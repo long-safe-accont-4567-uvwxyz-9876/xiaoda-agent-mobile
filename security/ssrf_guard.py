@@ -16,11 +16,11 @@ import ipaddress
 import os
 import re
 import socket
+import threading as _threading
 import urllib.parse
 from collections import OrderedDict
 
 from loguru import logger
-
 
 # ── Step 1: 协议白名单 ──
 _ALLOWED_SCHEMES = {"http", "https"}
@@ -81,7 +81,6 @@ _BLOCKED_NETWORKS = [
 # 缓存已通过 Step4 校验的 IP, 避免每次请求重新解析, 防止 TOCTOU
 # 注意: 缓存无 TTL, 适用于专用聊天agent+本地编辑器场景;
 # 多租户公网场景应加 TTL 防 IP 漂移误用
-import threading as _threading
 
 _PIN_CACHE: "OrderedDict[str, str]" = OrderedDict()
 _PIN_CACHE_MAX_SIZE = 1000
@@ -285,7 +284,7 @@ def is_safe(url: str) -> bool:
         return False
 
 
-# 本地/容器内受信服务主机名（如 Ollama http://localhost:11434）。
+# 本地/容器内受信服务主机名。
 # 这类主机名在 _BLOCKED_HOSTNAMES / _BLOCKED_NETWORKS 中会被拒，
 # 但对用户显式配置的本地服务是合法目标，需放行。
 _LOCAL_HOSTS = {
@@ -304,8 +303,8 @@ _LOCAL_HOSTS = {
 def is_local_host(url: str) -> bool:
     """判断 URL 主机名是否为本地/回环地址。
 
-    用于放行用户显式配置的本地服务（如 Ollama），跳过 SSRF 的 IP/主机名检查，
-    但仍需满足 http/https 协议白名单。与 setup._test_ollama 的本地豁免保持一致。
+    用于放行用户显式配置的本地服务，跳过 SSRF 的 IP/主机名检查，
+    但仍需满足 http/https 协议白名单。
     """
     try:
         host = (urllib.parse.urlparse(url).hostname or "").lower().rstrip(".")

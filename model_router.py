@@ -1,33 +1,36 @@
-from typing import Any, ClassVar
-from collections.abc import AsyncIterator
+import asyncio
+import contextlib
+import contextvars
 import copy
 import hashlib
 import os
 import time
-import asyncio
-import contextvars
-from openai import AsyncOpenAI
+from collections.abc import AsyncIterator
+from typing import Any, ClassVar
+
+import httpx
 import openai as _openai_mod  # 用于 openai.APIError 异常捕获
 from loguru import logger
+from openai import AsyncOpenAI
 
-from db.db_analytics import AnalyticsDB
-from utils.metrics import metrics
 from config import AGNES_BASE_URL, AGNES_TEXT_MODEL, PROMPT_CACHING_ENABLED
-from config import MODEL_NAME as _CFG_MODEL_NAME
-from config import FLASH_MODEL_NAME as _CFG_FLASH_MODEL, DEFAULT_PROVIDER as _CFG_DEFAULT_PROVIDER
+from config import DEFAULT_PROVIDER as _CFG_DEFAULT_PROVIDER
+from config import FLASH_MODEL_NAME as _CFG_FLASH_MODEL
 from config import MIMO_MODEL as _CFG_MIMO_MODEL
-from config import set_default_provider as _set_default_provider
+from config import MODEL_NAME as _CFG_MODEL_NAME
 from config import get_builtin_providers as _get_builtin_providers
-from transports import ProviderTransport, MiMoTransport, AgnesTransport
-# 根因修复：agnes API connect=5s 过短导致 APIConnectionError，统一从 agnes_transport 引入共享 httpx 配置
-from transports.agnes_transport import _get_agnes_http_client, AGNES_HTTP_TIMEOUT, close_agnes_shared_client
-from utils.prompt_caching import apply_cache_control
-from utils.error_classifier import ErrorClassifier, RecoveryAction
-from utils.credential_pool import get_credential_pool
-from security.ssrf_guard import validate_url as _ssrf_validate_url
-from core.app_exception import LLMError
+from config import set_default_provider as _set_default_provider
+from core.app_exception import LLMError, ProtocolError
 from core.error_codes import ErrorCodeEnum
-import contextlib
+from db.db_analytics import AnalyticsDB
+from transports import AgnesTransport, MiMoTransport, ProviderTransport
+
+# 根因修复：agnes API connect=5s 过短导致 APIConnectionError，统一从 agnes_transport 引入共享 httpx 配置
+from transports.agnes_transport import AGNES_HTTP_TIMEOUT, close_agnes_shared_client
+from utils.credential_pool import get_credential_pool
+from utils.error_classifier import ErrorClassifier, RecoveryAction
+from utils.metrics import metrics
+from utils.prompt_caching import apply_cache_control
 
 
 def _mask_api_key(key: str) -> str:
@@ -84,68 +87,6 @@ _PROVIDER_METADATA: dict = _load_provider_metadata()
 _PROVIDER_CAPS_FROM_FILE: dict = _PROVIDER_METADATA.get("providers", {}) if isinstance(_PROVIDER_METADATA, dict) else {}
 
 
-# ── Ollama 模型名映射（真实代理转发本地 Ollama 的配套翻译机制） ──
-# 背景：路由会把工作流/云平台（如硅基流动）写死的模型名（如 "deepseek-ai/DeepSeek-V3-0324"）
-# 直接透传给 provider。本地 Ollama 只有用户 own 的模型，云模型名不存在会报 "model not found"。
-# 因此在把请求真正转发给本地 Ollama（OLLAMA_BASE_URL，如 http://localhost:11434/v1）之前，
-# 先做"翻译（映射）"：把云模型名映射为用户本地实际 pull 的模型名。
-# 配置来源（无硬编码）：config/provider_metadata.json 的 ollama.model_name_map + ollama.default_model，
-# 用户可编辑，也可用环境变量覆盖（见下方 _OLLAMA_MODEL_MAP_OVERRIDE）。
-def _load_ollama_model_map() -> tuple[dict, str]:
-    """从 provider_metadata.json + 环境变量加载 Ollama 模型名映射。"""
-    _meta = _PROVIDER_CAPS_FROM_FILE.get("ollama", {}) if isinstance(_PROVIDER_CAPS_FROM_FILE, dict) else {}
-    _map: dict = {}
-    _default = ""
-    if isinstance(_meta, dict):
-        _mm = _meta.get("model_name_map")
-        if isinstance(_mm, dict):
-            # 过滤以下划线开头的元字段（如 "_comment"）
-            _map = {k: v for k, v in _mm.items() if not k.startswith("_")}
-        _default = str(_meta.get("default_model", "") or "")
-    # 环境变量覆盖：OLLAMA_MODEL_MAP 为 JSON 字典，OLLAMA_DEFAULT_MODEL 为单个模型名
-    _env_map = os.getenv("OLLAMA_MODEL_MAP", "").strip()
-    if _env_map:
-        try:
-            import json as _json
-            _parsed = _json.loads(_env_map)
-            if isinstance(_parsed, dict):
-                _map = {k: v for k, v in _parsed.items() if isinstance(v, str) and v}
-        except (ValueError, TypeError):
-            logger.warning("router.ollama_model_map_env_invalid raw={}", _env_map)
-    _env_default = os.getenv("OLLAMA_DEFAULT_MODEL", "").strip()
-    if _env_default:
-        _default = _env_default
-    return _map, _default
-
-
-_OLLAMA_MODEL_MAP, _OLLAMA_DEFAULT_MODEL = _load_ollama_model_map()
-
-
-def translate_model_for_provider(provider: str, model: str) -> str:
-    """把工作流/云平台模型名翻译为该 provider 实际使用的模型名。
-
-    仅对 Ollama 生效（本地模型名与云平台模型名不一致时会报 "model not found"）：
-      1. 精确命中 model_name_map → 用映射后的本地模型名
-      2. 形如 "org/model" 的云模型名（含 "/"，非本地模型）→ 用用户配置的 default_model
-      3. 其余原样透传（用户可直接填本地模型名，如 "qwen2.5"）
-    其他 provider 一律原样返回，不做任何改动。
-    """
-    if provider != "ollama":
-        return model
-    if not model:
-        return _OLLAMA_DEFAULT_MODEL or model
-    _mapped = _OLLAMA_MODEL_MAP.get(model)
-    if _mapped:
-        if _mapped != model:
-            logger.debug("router.ollama_model_mapped from={} to={}", model, _mapped)
-        return _mapped
-    if "/" in model and _OLLAMA_DEFAULT_MODEL:
-        # 云平台风格模型名（含组织/前缀，如 "deepseek-ai/DeepSeek-V3-0324"）通常不是本地模型
-        logger.info("router.ollama_model_fallback from={} to={}", model, _OLLAMA_DEFAULT_MODEL)
-        return _OLLAMA_DEFAULT_MODEL
-    return model
-
-
 def _load_provider_base_url(provider: str, env_var: str) -> str:
     """从环境变量 + provider_metadata.json 加载 provider base_url（无硬编码）。"""
     _env = os.getenv(env_var, "")
@@ -192,11 +133,6 @@ PROVIDER_PRICING = {
         "input_per_m": 0.15,
         "cache_hit_per_m": 0.015,
         "output_per_m": 0.30,
-    },
-    "ollama": {
-        "input_per_m": 0.0,
-        "cache_hit_per_m": 0.0,
-        "output_per_m": 0.0,
     },
     "default": {
         "input_per_m": 0.20,
@@ -247,14 +183,13 @@ FALLBACK_ROUTE = {
 #
 # 上限来源（用户问"PROVIDER_MAX_TOKENS_CAP 上限来源呢？"）：
 #   不再硬编码在代码里。来源链路如下（优先级从高到低）：
-#     1. 环境变量 AGNES_MAX_TOKENS_CAP / MIMO_MAX_TOKENS_CAP / OLLAMA_MAX_TOKENS_CAP（最高优先级，运维覆盖）
+#     1. Provider 对应的 MAX_TOKENS_CAP 环境变量（最高优先级，运维覆盖）
 #     2. config/provider_metadata.json 中各 provider 的 max_tokens_cap 字段（用户可编辑）
 #        该文件标注了每个值的 doc_url + doc_note（官方文档链接 + 溯源说明）
 #     3. None（不裁剪，安全兜底）
 #   官方文档溯源：
 #     - agnes-2.0-flash: 65536（https://docs.agnes-ai.cn/，超过返回 500）
 #     - mimo-v2.5:       131072（https://www.xiaomimimo.com/）
-#     - ollama:          视本地模型而定，默认不裁剪
 #
 # 注：_load_provider_metadata / _PROVIDER_METADATA / _PROVIDER_CAPS_FROM_FILE
 #     已在文件顶部（imports 之后）定义，此处直接复用。
@@ -289,10 +224,10 @@ def _load_provider_max_tokens_cap() -> dict[str, int | None]:
             return None
 
     # 已知 provider 列表（从元数据文件取，找不到则空）
-    _known_providers = set(_PROVIDER_CAPS_FROM_FILE.keys()) | {"agnes", "mimo", "ollama"}
+    _known_providers = set(_PROVIDER_CAPS_FROM_FILE.keys()) | {"agnes", "mimo"}
     cap: dict[str, int | None] = {}
     for p in _known_providers:
-        _env_var_map = {"agnes": "AGNES_MAX_TOKENS_CAP", "mimo": "MIMO_MAX_TOKENS_CAP", "ollama": "OLLAMA_MAX_TOKENS_CAP"}
+        _env_var_map = {"agnes": "AGNES_MAX_TOKENS_CAP", "mimo": "MIMO_MAX_TOKENS_CAP"}
         env_v = _env_cap(_env_var_map.get(p, f"{p.upper()}_MAX_TOKENS_CAP"))
         if env_v is not None:
             cap[p] = env_v
@@ -350,16 +285,6 @@ def list_discovered_model_ids() -> list[str]:
     except (ImportError, KeyError, ValueError, OSError):
         logger.debug("router.discovered_model_ids_failed", exc_info=True)
     return sorted(ids)
-
-
-def _ssrf_check(url: str) -> None:
-    """SSRF 防护：5步法校验 base_url 安全性（best-effort，本地 provider 如 Ollama 校验失败仅告警不阻塞）"""
-    try:
-        ok, reason = _ssrf_validate_url(url)
-        if not ok:
-            logger.warning("router.ssrf_blocked url={} reason={}", url, reason)
-    except (ValueError, OSError) as e:
-        logger.debug("router.ssrf_check_skip url={} error={}", url, str(e))
 
 
 class ModelRouteRegistry:
@@ -544,8 +469,8 @@ class ModelRouter:
         # 从 os.getenv() 实时读取，避免使用模块级冻结变量
         _mimo_key = api_key or os.getenv("MIMO_API_KEY", "")
         _mimo_url = base_url or os.getenv("MIMO_BASE_URL", "https://api.xiaomimimo.com/v1")
-        _ssrf_check(_mimo_url)  # SSRF 防护：校验 base_url
-        self._client = AsyncOpenAI(api_key=_mimo_key, base_url=_mimo_url) if _mimo_key else None
+        from web.custom_providers import build_openai_client
+        self._client = build_openai_client(_mimo_url, _mimo_key) if _mimo_key else None
         self._db = db
         self._model_preference = "mimo"
         self._cost_buffer: list[dict] = []
@@ -576,12 +501,10 @@ class ModelRouter:
             except Exception:
                 logger.debug("router.agnes_key_pool_load_failed", exc_info=True)
         _agnes_url = os.getenv("AGNES_BASE_URL", AGNES_BASE_URL)
-        _ssrf_check(_agnes_url)  # SSRF 防护：校验 base_url
         self._agnes_client = (
-            AsyncOpenAI(
-                api_key=_agnes_key,
-                base_url=_agnes_url,
-                http_client=_get_agnes_http_client(),
+            build_openai_client(
+                _agnes_url,
+                _agnes_key,
                 timeout=AGNES_HTTP_TIMEOUT,
                 max_retries=0,
             ) if _agnes_key else None
@@ -636,7 +559,7 @@ class ModelRouter:
     def _register_credential_pool_providers(self) -> None:
         """从凭证池主动注册非 mimo/agnes 的 Provider 到 _custom_clients。
 
-        确保本地 Provider（如 Ollama）和免费平台（如 SiliconFlow）在路由器
+        确保凭证池中的扩展 Provider 在路由器
         初始化时即被注册，不依赖 Web 服务的 _register_env_providers 流程。
         """
         try:
@@ -646,7 +569,6 @@ class ModelRouter:
             return
         _BUILTIN_PROVIDERS = {"mimo", "agnes"}
         _PROVIDER_FORMAT = {
-            "ollama": "openai",
             "siliconflow": "openai",
             "openrouter": "openai",
             "modelscope": "openai",
@@ -662,27 +584,31 @@ class ModelRouter:
             cred = creds[0]
             fmt = _PROVIDER_FORMAT.get(provider, "openai")
             if cred.base_url and cred.api_key:
-                register_into_router(self, provider, fmt, cred.base_url, cred.api_key)
-                logger.info("router.credential_pool_registered provider={} format={}", provider, fmt)
+                try:
+                    register_into_router(self, provider, fmt, cred.base_url, cred.api_key)
+                    logger.info("router.credential_pool_registered provider={} format={}", provider, fmt)
+                except ProtocolError:
+                    logger.warning("router.credential_pool_provider_rejected provider={}", provider)
 
     def _lazy_register_provider(self, provider: str) -> None:
         """懒注册：从 config_service 恢复未注册的自定义 provider。"""
         try:
-            from web.config_service import get_config_service
             from web._provider_keys import load_provider_key
-            from web.custom_providers import register_into_router
-            cfg = get_config_service()
-            record = cfg.get(f"models.providers.{provider}")
-            if record:
-                api_key = load_provider_key(provider)
-                if api_key:
-                    register_into_router(
-                        self, provider,
-                        record.get("format", "openai"),
-                        record.get("base_url", ""),
-                        api_key,
-                    )
-                    logger.info("router.lazy_registered provider={}", provider)
+            from web.config_service import get_config_service
+            from web.custom_providers import _runtime_registration_coordinator, register_into_router
+            with _runtime_registration_coordinator:
+                cfg = get_config_service()
+                record = cfg.get(f"models.providers.{provider}")
+                if record and record.get("enabled", True):
+                    api_key = load_provider_key(provider)
+                    if api_key:
+                        register_into_router(
+                            self, provider,
+                            record.get("format", "openai"),
+                            record.get("base_url", ""),
+                            api_key,
+                        )
+                        logger.info("router.lazy_registered provider={}", provider)
         except (ImportError, AttributeError, KeyError, ValueError) as e:
             logger.warning("router.lazy_register_failed provider={} error={}", provider, str(e))
 
@@ -694,12 +620,13 @@ class ModelRouter:
         os.environ 重新读取 Key 并重建客户端，使新配置立即生效。
         """
         old_mimo = self._client  # 旧 MiMo 客户端（独立 httpx，替换后 close 释放连接）
+        old_agnes = self._agnes_client
 
         new_mimo_key = os.getenv("MIMO_API_KEY", "")
         new_mimo_url = os.getenv("MIMO_BASE_URL", MIMO_BASE_URL)
         if new_mimo_key:
-            _ssrf_check(new_mimo_url)  # SSRF 防护：校验 base_url
-            self._client = AsyncOpenAI(api_key=new_mimo_key, base_url=new_mimo_url)
+            from web.custom_providers import build_openai_client
+            self._client = build_openai_client(new_mimo_url, new_mimo_key)
             logger.info("router.mimo_client_refreshed",
                         key_len=len(new_mimo_key),
                         key_hash=_mask_api_key(new_mimo_key))
@@ -709,11 +636,10 @@ class ModelRouter:
         new_agnes_key = os.getenv("AGNES_API_KEY", "")
         new_agnes_url = os.getenv("AGNES_BASE_URL", AGNES_BASE_URL)
         if new_agnes_key:
-            _ssrf_check(new_agnes_url)  # SSRF 防护：校验 base_url
-            self._agnes_client = AsyncOpenAI(
-                api_key=new_agnes_key,
-                base_url=new_agnes_url,
-                http_client=_get_agnes_http_client(),
+            from web.custom_providers import build_openai_client
+            self._agnes_client = build_openai_client(
+                new_agnes_url,
+                new_agnes_key,
                 timeout=AGNES_HTTP_TIMEOUT,
                 max_retries=0,
             )
@@ -731,10 +657,12 @@ class ModelRouter:
         _old_clients: list = []
         if old_mimo is not None and old_mimo is not self._client:
             _old_clients.append(old_mimo)
+        if old_agnes is not None and old_agnes is not self._agnes_client:
+            _old_clients.append(old_agnes)
         if _old_clients:
             try:
                 import asyncio
-                loop = asyncio.get_running_loop()
+                asyncio.get_running_loop()
 
                 async def _close_old() -> None:
                     await asyncio.gather(
@@ -946,7 +874,6 @@ class ModelRouter:
     # 注意：这些是 fallback 值，当 provider 的 default_model 为空时使用
     # 建议通过 /models/health-check 端点定期验证这些模型ID是否仍然可用
     _CUSTOM_PROVIDER_DEFAULT_MODELS: ClassVar[dict[str, str]] = {
-        "ollama": "qwen2.5:latest",
         "siliconflow": "THUDM/GLM-4-9B-0414",
         "openrouter": "openrouter/free",
         "modelscope": "Qwen/Qwen3-8B",
@@ -1153,6 +1080,12 @@ class ModelRouter:
             except (RuntimeError, OSError, _openai_mod.APIError):
                 logger.debug("model_router.close_client_error", exc_info=True)
         self._client = None
+        if self._agnes_client is not None:
+            try:
+                await self._agnes_client.close()
+            except (RuntimeError, OSError, _openai_mod.APIError):
+                logger.debug("model_router.close_agnes_client_error", exc_info=True)
+        self._agnes_client = None
         # 关闭自定义 provider 客户端（跳过 agnes：它复用共享 httpx client，由下方统一关闭）
         if hasattr(self, "_custom_clients"):
             for cp_name, cp_client in list(self._custom_clients.items()):
@@ -1168,7 +1101,12 @@ class ModelRouter:
             await close_agnes_shared_client()
         except (RuntimeError, OSError):
             logger.debug("model_router.close_agnes_shared_client_error", exc_info=True)
-        self._agnes_client = None
+        if hasattr(self, "_transports"):
+            for transport in self._transports.values():
+                try:
+                    await transport.close()
+                except (RuntimeError, OSError, _openai_mod.APIError):
+                    logger.debug("model_router.close_transport_error", exc_info=True)
 
     @staticmethod
     def _apply_caching_headers(extra_headers: dict | None) -> dict | None:
@@ -1523,11 +1461,10 @@ class ModelRouter:
                         _agnes_url = os.getenv("AGNES_BASE_URL", AGNES_BASE_URL)
                         if _agnes_key:
                             try:
-                                _ssrf_check(_agnes_url)
-                                self._agnes_client = AsyncOpenAI(
-                                    api_key=_agnes_key,
-                                    base_url=_agnes_url,
-                                    http_client=_get_agnes_http_client(),
+                                from web.custom_providers import build_openai_client
+                                self._agnes_client = build_openai_client(
+                                    _agnes_url,
+                                    _agnes_key,
                                     timeout=AGNES_HTTP_TIMEOUT,
                                     max_retries=0,
                                 )
@@ -1559,9 +1496,8 @@ class ModelRouter:
                     _mimo_url = os.getenv("MIMO_BASE_URL", MIMO_BASE_URL)
                     if _mimo_key:
                         try:
-                            _ssrf_check(_mimo_url)
-                            self._client = AsyncOpenAI(
-                                api_key=_mimo_key, base_url=_mimo_url)
+                            from web.custom_providers import build_openai_client
+                            self._client = build_openai_client(_mimo_url, _mimo_key)
                             client = self._client
                             logger.info("router.mimo_client_lazy_recovered",
                                         key_hash=_mask_api_key(_mimo_key))
@@ -1644,10 +1580,8 @@ class ModelRouter:
         """构造流式调用 kwargs。"""
         # P0 修复：按 provider 上限裁剪 max_tokens（agnes 上限 65536）
         mt = ModelRouter._cap_max_tokens(mt, provider)
-        # Ollama 模型名翻译：把工作流/云模型名映射为本地实际模型名（真实代理核心配套）
-        _send_model = translate_model_for_provider(provider, model)
         kwargs = {
-            "model": _send_model,
+            "model": model,
             "messages": messages,
             "temperature": temperature,
             "max_tokens": mt,
@@ -1809,8 +1743,18 @@ class ModelRouter:
                             user_id=user_openid, session_id=session_id, stream=True,
                             finish_reason=_stream_finish_reason)
                 return
+            except (GeneratorExit, asyncio.CancelledError):
+                if stream:
+                    close = getattr(stream, "aclose", None) or getattr(stream, "close", None)
+                    if close is not None:
+                        with contextlib.suppress(AttributeError, OSError, RuntimeError):
+                            result = close()
+                            if hasattr(result, "__await__"):
+                                await result
+                    stream = None
+                raise
             except (RuntimeError, OSError, KeyError, ValueError, _openai_mod.APIError,
-                    asyncio.TimeoutError, LLMError) as e:
+                    asyncio.TimeoutError, LLMError, ProtocolError, httpx.TransportError) as e:
                 # CR-Major-1：补 LLMError 捕获，_select_client_for_provider 抛 LLMError 时
                 # 也走重试/降级，而非直接传播给上层流式消费者（与 route() 的 except 集合对齐）。
                 # P0 修复：捕获 stall timeout（asyncio.TimeoutError）
@@ -1913,11 +1857,8 @@ class ModelRouter:
         """构造非流式/流式路由调用的 kwargs。"""
         # P0 修复：按 provider 上限裁剪 max_tokens（agnes 上限 65536）
         max_tokens = ModelRouter._cap_max_tokens(max_tokens, provider)
-        # Ollama 模型名翻译：把工作流/云模型名映射为本地实际模型名，
-        # 避免请求转发到本地 Ollama 时因模型不存在报错（真实代理的核心配套）。
-        _send_model = translate_model_for_provider(provider, model)
         kwargs = {
-            "model": _send_model,
+            "model": model,
             "messages": messages,
             "temperature": temperature,
             "max_tokens": max_tokens,
@@ -2164,19 +2105,16 @@ class ModelRouter:
                 # agnes 复用共享 httpx client + connect=15s 配置（根因修复）；
                 # mimo 保持默认（不在本次 APIConnectionError 根因范围）
                 _new_base = new_cred.base_url or (MIMO_BASE_URL if provider == "mimo" else AGNES_BASE_URL)
+                from web.custom_providers import build_openai_client
                 if provider == "agnes":
-                    new_client = AsyncOpenAI(
-                        api_key=new_cred.api_key,
-                        base_url=_new_base,
-                        http_client=_get_agnes_http_client(),
+                    new_client = build_openai_client(
+                        _new_base,
+                        new_cred.api_key,
                         timeout=AGNES_HTTP_TIMEOUT,
                         max_retries=0,
                     )
                 else:
-                    new_client = AsyncOpenAI(
-                        api_key=new_cred.api_key,
-                        base_url=_new_base,
-                    )
+                    new_client = build_openai_client(_new_base, new_cred.api_key)
                 if provider == "mimo":
                     self._client = new_client
                 else:
@@ -2264,7 +2202,7 @@ class ModelRouter:
                 )
 
             except (RuntimeError, OSError, KeyError, ValueError,
-                    _openai_mod.APIError, LLMError) as e:
+                    _openai_mod.APIError, LLMError, ProtocolError, httpx.TransportError) as e:
                 # LLMError：客户端未初始化/无法恢复，重试同一 provider 无意义，
                 # 但必须让它作为 last_error 抛出到 route 的降级链（见 route 的注释）
                 last_error = e

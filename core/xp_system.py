@@ -327,7 +327,14 @@ class XPSystem:
         tmp = self._state_path.with_suffix(".json.tmp")
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
-        os.replace(tmp, self._state_path)
+        for attempt in range(3):
+            try:
+                os.replace(tmp, self._state_path)
+                break
+            except PermissionError:
+                if attempt == 2 or os.name != "nt":
+                    raise
+                time.sleep(0.05 * (attempt + 1))
 
     # ── 状态访问 ────────────────────────────────────────────
 

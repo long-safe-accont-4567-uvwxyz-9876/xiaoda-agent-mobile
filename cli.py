@@ -642,8 +642,8 @@ class CLIInterface:
         CLI 需识别该异常以触发自动重连。
         """
         try:
-            import websockets
-            return isinstance(e, websockets.exceptions.ConnectionClosed)
+            from websockets.exceptions import ConnectionClosed
+            return isinstance(e, ConnectionClosed)
         except ImportError:
             return False
 

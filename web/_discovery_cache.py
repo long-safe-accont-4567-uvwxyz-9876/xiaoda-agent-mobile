@@ -1,22 +1,57 @@
-"""模型发现缓存 —— 从 web.routers.model_discovery 抽取.
-
-原 web.routers.models 顶层 `from web.routers.model_discovery import invalidate_discovery_cache`,
-而 model_discovery 函数内又 `from web.routers.models import load_provider_key`, 形成:
-    web.routers.models <-> web.routers.model_discovery
-
-将缓存 (_cache / _CACHE_TTL) 与失效函数 (invalidate_discovery_cache) 抽到本模块,
-该模块不依赖任何 web.routers 或 model_router, 从而打破循环.
-"""
+"""Per-provider model discovery cache with separate success/failure TTLs."""
+from __future__ import annotations
 
 import asyncio
+import copy
+import time
+from typing import Any, Callable
 
-_cache: dict = {"data": None, "ts": 0.0}
 _CACHE_TTL = 30 * 60
+_FAILURE_CACHE_TTL = 45
+_cache: dict[str, Any] = {"data": None, "ts": 0.0}
 _cache_lock = asyncio.Lock()
 
 
-async def invalidate_discovery_cache() -> None:
-    """清除模型发现缓存，使下次请求重新获取。"""
+class ProviderDiscoveryCache:
+    def __init__(
+        self,
+        *,
+        success_ttl: float = _CACHE_TTL,
+        failure_ttl: float = _FAILURE_CACHE_TTL,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self.success_ttl = success_ttl
+        self.failure_ttl = failure_ttl
+        self._clock = clock
+        self._entries: dict[str, dict[str, Any]] = {}
+
+    def get(self, provider_id: str) -> dict[str, Any] | None:
+        entry = self._entries.get(provider_id)
+        if entry is None or entry["expires_at"] <= self._clock():
+            self._entries.pop(provider_id, None)
+            return None
+        value = copy.deepcopy(entry["value"])
+        value["cached"] = True
+        return value
+
+    def put(self, provider_id: str, value: dict[str, Any], *, success: bool) -> None:
+        ttl = self.success_ttl if success else self.failure_ttl
+        stored = copy.deepcopy(value)
+        stored["cached"] = False
+        self._entries[provider_id] = {"value": stored, "expires_at": self._clock() + ttl}
+
+    def invalidate(self, provider_id: str | None = None) -> None:
+        if provider_id is None:
+            self._entries.clear()
+        else:
+            self._entries.pop(provider_id, None)
+
+
+provider_discovery_cache = ProviderDiscoveryCache()
+
+
+async def invalidate_discovery_cache(provider_id: str | None = None) -> None:
     async with _cache_lock:
+        provider_discovery_cache.invalidate(provider_id)
         _cache["data"] = None
         _cache["ts"] = 0.0

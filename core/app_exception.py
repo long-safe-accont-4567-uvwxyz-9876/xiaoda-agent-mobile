@@ -68,6 +68,25 @@ class AppException(Exception):
         return f"[{self.error_code.code}] {self.message}"
 
 
+class ProtocolError(AppException):
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str,
+        stage: str,
+        retryable: bool,
+        http_status: int,
+        details: dict[str, Any] | None = None,
+        cause: Exception | None = None,
+    ) -> None:
+        self.code = code
+        self.stage = stage
+        self.retryable = retryable
+        self.http_status = http_status
+        super().__init__(message, details=details, cause=cause)
+
+
 # ============================================================
 # 分类异常子类 —— 每个默认关联一个错误码
 # ============================================================

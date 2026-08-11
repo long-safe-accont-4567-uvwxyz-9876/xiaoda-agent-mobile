@@ -17,25 +17,25 @@ def _nodes():
 
 
 def test_e2e_slash_opens_panel_and_leaf_executes():
+    from prompt_toolkit.application import create_app_session
     from prompt_toolkit.input import create_pipe_input
     from prompt_toolkit.output import DummyOutput
     p = CommandPalette(prompt="> ", nodes=_nodes())
-    with create_pipe_input() as inp:
+    with create_pipe_input() as inp, create_app_session(input=inp, output=DummyOutput()):
         inp.send_text("/status\r")
         p._inp = inp
-        p._out = DummyOutput()
         result = p.prompt()
     assert result == "/status"
 
 
 def test_e2e_multistep_enters_children():
+    from prompt_toolkit.application import create_app_session
     from prompt_toolkit.input import create_pipe_input
     from prompt_toolkit.output import DummyOutput
     p = CommandPalette(prompt="> ", nodes=_nodes())
-    with create_pipe_input() as inp:
+    with create_pipe_input() as inp, create_app_session(input=inp, output=DummyOutput()):
         # /model 是多步命令：回车进入二级(agnes) → 再回车进入模型列表 → 再回车选中叶子
         inp.send_text("/model\r\r\r")
         p._inp = inp
-        p._out = DummyOutput()
         result = p.prompt()
     assert result == "/model agnes/agnes-2.0-flash"

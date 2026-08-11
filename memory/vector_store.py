@@ -2,7 +2,6 @@ import asyncio
 import hashlib
 import json
 import os
-import sys
 import threading
 from collections import OrderedDict
 from pathlib import Path
@@ -105,42 +104,17 @@ class EmbedCache:
         }
 
 
-def _default_local_model_dir() -> str:
-    """本地向量模型目录解析（优先级：env LOCAL_EMBED_MODEL_DIR > 项目内 models/ > 空）。
-
-    项目内路径兼容 PyInstaller onedir 打包（sys._MEIPASS）：
-    Windows 安装包内置 bge-small-zh-v1.5（onnx + tokenizer），
-    开箱即用、默认 CPU 推理；外部环境仍可用 env 显式指定模型目录。
-    """
-    d = os.getenv("LOCAL_EMBED_MODEL_DIR", "").strip()
-    if d:
-        return d
-    base = getattr(sys, "_MEIPASS", None) or Path(__file__).resolve().parent.parent
-    p = Path(base) / "models" / "bge-small-zh-v1.5"
-    return str(p) if p.exists() else ""
-
-
 class VectorStore:
     """基于 SQLite-vec 的向量存储，支持嵌入、写入、删除和相似度搜索。"""
 
     def __init__(self, db_path: str | Path, embed_api_key: str = "",
-                 embed_base_url: str = "", embed_model: str = "BAAI/bge-m3",
-                 dimensions: int = 0, embed_mode: str = "",
-                 local_model_dir: str = "", local_query_prefix: str = "") -> None:
-        """初始化向量存储。
-
-        embed_mode: "local" 走香橙派本地 onnxruntime 推理（BGE-small-zh-v1.5），
-                    默认 "remote" 走远程 API（向后兼容）。
-        """
+                 embed_model: str = "BAAI/bge-m3",
+                 dimensions: int = 0) -> None:
+        """初始化向量存储。"""
         self._db_path = str(db_path)
         self._embed_api_key = embed_api_key
-        self._embed_base_url = embed_base_url
         self._embed_model = embed_model
         self._dimensions = dimensions
-        self._embed_mode = embed_mode or os.getenv("EMBED_MODE", "local")
-        self._local_model_dir = local_model_dir or _default_local_model_dir()
-        self._local_query_prefix = local_query_prefix or os.getenv("LOCAL_EMBED_QUERY_PREFIX", "")
-        self._local_provider = None
         self._initialized = False
         self._closed = False
         self._lock = threading.Lock()
@@ -162,135 +136,20 @@ class VectorStore:
         _embed_concurrency = _safe_int(os.getenv("VECTOR_EMBED_CONCURRENCY", "8"), 8)
         self._embed_semaphore = asyncio.Semaphore(_embed_concurrency)
 
-        if self._embed_mode == "local":
-            # 本地推理：不依赖远程 API Key / 网络，模型加载为懒加载。
-            self._local_provider = self._build_local_provider()
-            if self._local_provider is not None:
-                logger.info("vector_store.local_embed_enabled backend=cpu model_dir={}", self._local_model_dir)
-            else:
-                logger.warning("vector_store.local_embed_init_failed provider=None")
-        elif HAS_OPENAI and self._embed_api_key:
+        if HAS_OPENAI and self._embed_api_key:
             self._embed_client = self._build_remote_client()
 
-    # ── embedding 引擎构建 / 热切换（WebUI 本地部署页）──────────
-
-    def _build_local_provider(self) -> Any:
-        """构建本地 CPU embedding provider（幂等）。"""
-        try:
-            from memory.local_embed import LocalEmbeddingProvider
-            return LocalEmbeddingProvider(
-                self._local_model_dir,
-                query_prefix=self._local_query_prefix,
-            )
-        except Exception as e:  # noqa: BLE001
-            logger.warning("vector_store.local_embed_build_failed error={}", str(e))
-            return None
-
     def _build_remote_client(self) -> Any:
-        """构建远程 OpenAI 兼容 embedding client（硅基流动默认，幂等）。"""
+        """构建硅基流动 embedding client。"""
         if not HAS_OPENAI or not self._embed_api_key:
             return None
         return AsyncOpenAI(
             api_key=self._embed_api_key,
-            base_url=self._embed_base_url or "https://api.siliconflow.cn/v1",
+            base_url="https://api.siliconflow.cn/v1",
             http_client=_get_embed_shared_client(),
             timeout=_EMBED_HTTP_TIMEOUT,
             max_retries=0,  # 禁用 SDK 内部盲重试，连接错误重试无效且放大延迟
         )
-
-    def embed_engine_status(self) -> dict:
-        """当前 embedding 引擎状态（WebUI 本地部署页展示）。"""
-        provider = self._local_provider
-        running = False
-        if provider is not None:
-            try:
-                running = bool(getattr(provider, "ready", False))
-            except Exception:  # noqa: BLE001
-                running = False
-        return {
-            "mode": self._embed_mode,
-            "engine_running": running,
-            "backend": "cpu",
-            "api_configured": bool(
-                self._embed_api_key or os.getenv("SILICONFLOW_API_KEY", "")),
-            "model_dir": self._local_model_dir,
-            "dimensions": self._dimensions,
-        }
-
-    def set_embed_mode(self, mode: str) -> dict:
-        """运行时切换 embedding 引擎（local=本地模型 / remote=远程 API）。
-
-        幂等：目标模式与当前一致时直接返回现状。切换时释放旧本地引擎资源
-        （onnxruntime session）；远程 client 由共享 httpx
-        连接池管理，仅释放引用。构建失败自动回退另一模式并告警。
-        """
-        mode = (mode or "remote").strip().lower()
-        if mode not in ("local", "remote"):
-            mode = "remote"
-        with self._lock:
-            if mode == self._embed_mode:
-                return self.embed_engine_status()
-            old_provider = self._local_provider
-            self._local_provider = None
-            self._embed_client = None
-            if old_provider is not None:
-                try:
-                    old_provider.close()
-                except Exception as e:  # noqa: BLE001
-                    logger.warning("vector_store.embed_mode_old_provider_close_failed error={}", str(e))
-            self._embed_mode = mode
-            if mode == "local":
-                provider = self._build_local_provider()
-                if provider is not None:
-                    self._local_provider = provider
-                    logger.info("vector_store.embed_mode_switched mode=local")
-                else:
-                    logger.warning("vector_store.embed_mode_switch_failed fallback=remote")
-                    self._embed_mode = "remote"
-                    self._embed_client = self._build_remote_client()
-            else:
-                client = self._build_remote_client()
-                if client is not None:
-                    self._embed_client = client
-                    logger.info("vector_store.embed_mode_switched mode=remote")
-                else:
-                    logger.warning("vector_store.embed_mode_switch_failed fallback=local")
-                    self._embed_mode = "local"
-                    self._local_provider = self._build_local_provider()
-            return self.embed_engine_status()
-
-    def start_local_engine(self) -> dict:
-        """启动本地 embedding 引擎：确保 local 模式并预加载 CPU 模型。
-
-        WebUI 本地部署页"启动"按钮：使用本地模型前必须先启动。
-        """
-        with self._lock:
-            if self._embed_mode != "local":
-                self._embed_mode = "local"
-            if self._local_provider is None:
-                self._local_provider = self._build_local_provider()
-            provider = self._local_provider
-            if provider is not None:
-                try:
-                    ok = provider.load()  # 幂等：已加载直接返回 True
-                except Exception as e:  # noqa: BLE001
-                    ok = False
-                    logger.warning("vector_store.local_engine_start_failed error={}", str(e))
-                if ok:
-                    logger.info("vector_store.local_engine_started")
-            return self.embed_engine_status()
-
-    def stop_local_engine(self) -> dict:
-        """停止本地 embedding 引擎：释放 onnxruntime session。"""
-        with self._lock:
-            if self._local_provider is not None:
-                try:
-                    self._local_provider.close()
-                except Exception as e:  # noqa: BLE001
-                    logger.warning("vector_store.local_engine_stop_failed error={}", str(e))
-            self._local_provider = None
-            logger.info("vector_store.local_engine_stopped")
-            return self.embed_engine_status()
 
     @property
     def ready(self) -> bool:
@@ -345,16 +204,10 @@ class VectorStore:
 
                     # 维度策略：
                     # - 显式配置（dimensions > 0）时直接使用
-                    # - 本地推理模式：用本地模型输出维度（BGE-small-zh-v1.5 = 512）
                     # - 未配置时查表已有维度；表不存在则用 1024 兜底
                     # 修复 P0：原代码硬编码 1024 且首次 INSERT 时 _dimensions 竞态写入，
                     # 维度不匹配时 INSERT 永久失败。
-                    if self._embed_mode == "local" and self._local_provider is not None:
-                        # 懒加载时此处同步加载（首次使用），拿到真实维度
-                        self._local_provider.load()
-                        dims = self._local_provider.dimensions or 512
-                        self._dimensions = dims
-                    elif self._dimensions > 0:
+                    if self._dimensions > 0:
                         dims = self._dimensions
                     else:
                         try:
@@ -374,28 +227,6 @@ class VectorStore:
                             dims = 1024
                         # 固化检测到的维度，避免并发首 INSERT 竞态
                         self._dimensions = dims
-
-                    # local 模式：表已存在但维度与本地模型不一致（如 1024→512）时，
-                    # 不能原地改表结构，INSERT 会静默失败。检测到不匹配直接报错，
-                    # 由迁移脚本（scripts/rebuild_vec_local.py）重建表并重新向量化。
-                    if self._embed_mode == "local" and self._local_provider is not None:
-                        try:
-                            row = conn.execute(
-                                "SELECT embedding FROM memories_vec LIMIT 1"
-                            ).fetchone()
-                            if row is not None and row[0] is not None:
-                                raw = row[0]
-                                if isinstance(raw, (bytes, bytearray)):
-                                    existing_dims = len(raw) // 4
-                                else:
-                                    existing_dims = dims
-                                if existing_dims != dims:
-                                    raise RuntimeError(
-                                        f"memories_vec dims={existing_dims} != local embed dims={dims}；"
-                                        "请先运行 scripts/rebuild_vec_local.py 重建向量库"
-                                    )
-                        except sqlite3.OperationalError:
-                            pass  # 表不存在（首次初始化），正常创建
 
                     conn.execute(f"""
                         CREATE VIRTUAL TABLE IF NOT EXISTS memories_vec
@@ -469,10 +300,6 @@ class VectorStore:
                     self._vec_conn = None
 
         await asyncio.to_thread(_do_close)
-        # 本地推理 Provider：释放 ONNX session 与 tokenizer
-        if self._local_provider is not None:
-            self._local_provider.close()
-            self._local_provider = None
         # CodeRabbit 修复：不关闭 _embed_client，因为它复用全局共享 httpx client
         # （_get_embed_shared_client）。关闭 _embed_client 会关闭共享 httpx client，
         # 影响其他 VectorStore 实例。共享 client 生命周期由 close_shared_client() 统一管理。
@@ -500,7 +327,7 @@ class VectorStore:
         # 无在途 embed 请求后调用（由应用关闭顺序保证）。
         if self._closed:
             return []
-        if self._embed_mode != "local" and not self._embed_client:
+        if not self._embed_client:
             return []
 
         cached = self._cache.get(text)
@@ -532,17 +359,7 @@ class VectorStore:
             self._inflight.pop(text, None)
 
     async def _do_embed(self, text: str) -> list[float]:
-        """实际生成嵌入向量（本地推理或远程 API，含重试）。"""
-        # 本地推理（香橙派 onnxruntime CPU）：CPU 密集，走 to_thread 不阻塞事件循环；
-        # 无网络依赖、无重试必要，失败即返回空（调用方均有兜底）。
-        if self._embed_mode == "local":
-            if self._local_provider is None:
-                return []
-            vec = await asyncio.to_thread(self._local_provider.embed, text)
-            if vec and self._dimensions and len(vec) != self._dimensions:
-                logger.warning("vector_store.dimension_mismatch",
-                               expected=self._dimensions, actual=len(vec))
-            return vec
+        """通过远程 API 生成嵌入向量并处理重试。"""
         # 治本修复（2026-08-05 用户"治标不治本"反馈）：max_retries 2→1。
         # 根因：embed 偶发慢时重试也慢（网络波动不会 1s 内恢复），
         #   read=5s + 重试2次 = 最坏 5+1+5+1+5=17s，远超外层 wait_for(2s) 兜底。

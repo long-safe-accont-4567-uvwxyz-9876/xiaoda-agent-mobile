@@ -208,12 +208,15 @@ def _dpapi_decrypt(ciphertext: bytes) -> str:
     """使用 DPAPI CryptUnprotectData 解密。返回原始 plaintext。
 
     仅在 sys.platform == 'win32' 且 HAS_WIN32CRYPT = True 时调用。
-    CryptUnprotectData 返回 (description, data, entropy) 三元组。
+    CryptUnprotectData 返回包含 description 和 data 的序列。
     """
     # CryptUnprotectData(dataIn, optionalEntropy, reserved, promptStruct, flags)
-    _desc, data, _entropy = win32crypt.CryptUnprotectData(  # type: ignore[union-attr]
+    result = win32crypt.CryptUnprotectData(  # type: ignore[union-attr]
         ciphertext, None, None, None, 0
     )
+    if not isinstance(result, (tuple, list)) or len(result) < 2:
+        raise DecryptionError("DPAPI 返回值格式无效")
+    data = result[1]
     return data.decode("utf-8")
 
 
@@ -231,13 +234,11 @@ def _is_dpapi_encrypted(value: str) -> bool:
 
 # ── 公共 API ──────────────────────────────────────────────────
 def is_encrypted(value: str) -> bool:
-    """判断值是否已加密（enc:v1: 前缀 + 合法 base64url 主体）
-
-    注意：此函数仅检测 enc:v1: 格式。DPAPI 加密的值（enc:v2:dpapi:）
-    请使用 _is_dpapi_encrypted 检测，或两者都检查。
-    """
+    """判断值是否为受支持的加密格式。"""
     if not isinstance(value, str) or not value:
         return False
+    if _is_dpapi_encrypted(value):
+        return True
     if not value.startswith(_PREFIX):
         return False
     encoded = value[len(_PREFIX):]

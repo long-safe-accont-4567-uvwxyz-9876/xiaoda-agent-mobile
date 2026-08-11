@@ -292,7 +292,7 @@ const permLabel = computed<Record<string, string>>(() => ({
           <h3>{{ t('settings.sharedContext') }}</h3>
           <p class="apikey-desc">{{ t('settings.sharedContextDesc') }}</p>
           <div class="setting-row">
-            <n-checkbox-group :value="sharedPlatforms" @update:value="(v: string[]) => { sharedPlatforms = v; saveSharedPlatforms() }">
+            <n-checkbox-group :value="sharedPlatforms" @update:value="v => { sharedPlatforms = v.map(String); saveSharedPlatforms() }">
               <n-checkbox v-for="opt in sharedPlatformOptions" :key="opt.value" :value="opt.value">
                 {{ opt.label }}
               </n-checkbox>

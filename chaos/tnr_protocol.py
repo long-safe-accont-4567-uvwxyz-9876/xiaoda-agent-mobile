@@ -338,7 +338,7 @@ class TNRProtocol:
         Returns:
             TNRReport 包含四阶段结果、故障前后健康度、是否恢复
         """
-        t0 = time.time()
+        t0 = time.perf_counter()
         report = TNRReport(fault_type=fault_type)
         logger.info(f"TNR.start fault_type={fault_type}")
 
@@ -382,7 +382,7 @@ class TNRProtocol:
                 f"post={report.post_health.score if report.post_health else '?'})"
             )
 
-        report.duration = time.time() - t0
+        report.duration = time.perf_counter() - t0
         logger.info(
             f"TNR.done fault_type={fault_type} "
             f"restored={report.health_restored} "

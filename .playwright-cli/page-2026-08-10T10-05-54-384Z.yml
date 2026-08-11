@@ -1,0 +1,55 @@
+- generic [active] [ref=f2e1]:
+  - generic [ref=f2e3]:
+    - generic: 本 Agent 由作者飞个人学习用途二创开发
+    - generic [ref=f2e7]:
+      - banner [ref=f2e1067]:
+        - button "打开全部能力" [ref=f2e1068]
+        - button "打开快捷状态" [ref=f2e1071]:
+          - strong [ref=f2e1072]: Xiaoda
+          - generic [ref=f2e1073]: 待命
+        - button "查看连接状态：重连中" [ref=f2e1074]:
+          - generic [ref=f2e1075]: ↻
+      - main [ref=f2e17]:
+        - generic [ref=f2e1637]:
+          - heading "邮箱管理" [level=2] [ref=f2e1638]
+          - generic [ref=f2e1640]:
+            - heading "邮箱连接" [level=3] [ref=f2e1641]
+            - generic [ref=f2e1645]:
+              - alert [ref=f2e1646]:
+                - generic [ref=f2e1653]: 需要先安装 agently-cli，请在对话窗口中让助手自动完成
+              - generic [ref=f2e1655]: 接入过程由助手自动完成，你无需手动安装任何工具。只需在对话窗口发送一句指令，助手会自动安装 CLI 并引导你完成授权。
+              - generic [ref=f2e1656]:
+                - generic [ref=f2e1657]:
+                  - generic [ref=f2e1658]: "1"
+                  - generic [ref=f2e1659]:
+                    - generic [ref=f2e1660]: 在对话窗口发送接入指令
+                    - generic [ref=f2e1661]: 点击下方指令复制，然后粘贴到与助手的对话窗口中发送（点击"去对话"可直接跳转）
+                    - code [ref=f2e1662]: 请阅读 https://agent.qq.com/doc/cli-setup.md 文档，按照步骤为我安装并配置 Agent Mail CLI。
+                - generic [ref=f2e1663]:
+                  - generic [ref=f2e1664]: "2"
+                  - generic [ref=f2e1665]:
+                    - generic [ref=f2e1666]: 微信扫码授权
+                    - generic [ref=f2e1667]: 助手会返回一个授权链接，打开链接使用微信扫码完成授权，系统会自动创建专属邮箱地址
+                - generic [ref=f2e1668]:
+                  - generic [ref=f2e1669]: "3"
+                  - generic [ref=f2e1670]:
+                    - generic [ref=f2e1671]: 返回对话确认
+                    - generic [ref=f2e1672]: 页面显示"登录成功"后，回到对话窗口告诉助手"已完成授权"。当助手提示"邮箱地址 xxx 已授权成功"即代表接入完成
+              - generic [ref=f2e1673]:
+                - button "去对话" [ref=f2e1674]
+                - button "重新检查" [ref=f2e1676]
+          - generic [ref=f2e1678]: 请先连接邮箱后再使用邮件功能
+      - navigation "主要导航" [ref=f2e1076]:
+        - link "对话" [ref=f2e1077]:
+          - /url: "#/"
+        - link "Agent 管理" [ref=f2e1082]:
+          - /url: "#/settings/agents"
+        - link "内在世界" [ref=f2e1088]:
+          - /url: "#/insight"
+        - link "Skills 工具" [ref=f2e1093]:
+          - /url: "#/settings/tools"
+        - link "系统设置" [ref=f2e1098]:
+          - /url: "#/settings/system"
+          - generic [ref=f2e1687]: 当前
+  - button "Xiaoda的虚空终端" [ref=f2e105]:
+    - generic [ref=f2e106]: ▎>_

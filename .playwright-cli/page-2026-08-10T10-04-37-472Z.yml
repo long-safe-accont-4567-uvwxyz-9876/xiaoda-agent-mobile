@@ -1,0 +1,40 @@
+- generic [active] [ref=f2e1]:
+  - generic [ref=f2e3]:
+    - generic: 本 Agent 由作者飞个人学习用途二创开发
+    - generic [ref=f2e7]:
+      - banner [ref=f2e1067]:
+        - button "打开全部能力" [ref=f2e1068]
+        - button "打开快捷状态" [ref=f2e1071]:
+          - strong [ref=f2e1072]: Xiaoda
+          - generic [ref=f2e1073]: 待命
+        - button "查看连接状态：重连中" [ref=f2e1074]:
+          - generic [ref=f2e1075]: ↻
+      - main [ref=f2e17]:
+        - generic [ref=f2e1103]:
+          - generic [ref=f2e1104]:
+            - heading "🧚 Agent 管理" [level=2] [ref=f2e1105]
+            - button "＋ 新建子 Agent" [ref=f2e1106]
+          - generic [ref=f2e1110]:
+            - generic [ref=f2e1114]:
+              - generic [ref=f2e1115]: Xiaoda
+              - generic [ref=f2e1116]: Xiaoda
+            - generic [ref=f2e1117]:
+              - generic [ref=f2e1118]: mimo
+              - generic [ref=f2e1120]: qa
+              - generic [ref=f2e1122]: 主体
+            - generic [ref=f2e1124]: 🛠 8 个工具
+            - generic [ref=f2e1125]: 无路由描述
+      - navigation "主要导航" [ref=f2e1076]:
+        - link "对话" [ref=f2e1077]:
+          - /url: "#/"
+          - generic [ref=f2e1126]: 当前
+        - link "Agent 管理" [ref=f2e1082]:
+          - /url: "#/settings/agents"
+        - link "内在世界" [ref=f2e1088]:
+          - /url: "#/insight"
+        - link "Skills 工具" [ref=f2e1093]:
+          - /url: "#/settings/tools"
+        - link "系统设置" [ref=f2e1098]:
+          - /url: "#/settings/system"
+  - button "Xiaoda的虚空终端" [ref=f2e105]:
+    - generic [ref=f2e106]: ▎>_

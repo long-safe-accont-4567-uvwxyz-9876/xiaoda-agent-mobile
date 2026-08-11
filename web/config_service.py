@@ -136,6 +136,9 @@ _DEFAULTS: dict[str, Any] = {
         "particles": "medium",
         "tilt3d": True,
         "dendro_cursor_trail": False,  # 鼠标移动拖尾（草粒子轨迹），默认关闭，可在系统设置开启
+        "wallpaper_focus": {"x": 0.5, "y": 0.5},
+        "wallpaper_overlay": 0.28,
+        "wallpaper_motion": "auto",
     },
     "tools": {},      # {tool_name: {"enabled": false, "max_frequency": 5}}
     "mcp": {},        # {server_name: {command, args, env, agents, enabled}} 用户新增的
@@ -161,8 +164,6 @@ _DEFAULTS: dict[str, Any] = {
         "shared_platforms": [],
         "shared_key": "shared",
     },
-    # 本地部署：embedding 引擎模式（""=跟随 env EMBED_MODE；local/remote=用户显式选择）
-    "local_deploy": {"mode": ""},
 }
 
 
@@ -331,6 +332,7 @@ class ConfigService:
     def delete(self, path: str) -> None:
         """按点分路径删除配置项, 落盘并通知 watcher."""
         with self._lock:
+            old_value = copy.deepcopy(self._get_nested(path))
             parts = path.split(".")
             node = self._data
             for part in parts[:-1]:
@@ -342,7 +344,12 @@ class ConfigService:
             if not isinstance(node, dict):
                 return
             node.pop(parts[-1], None)
-            self._save()
+            try:
+                self._save()
+            except Exception:
+                self._assign(path, old_value)
+                logger.error("config_service.delete_rollback path={} reason=save_failed", path)
+                raise
         self._notify(path, None)
 
     def _save(self) -> None:

@@ -1,0 +1,68 @@
+- generic [active] [ref=f2e1]:
+  - generic [ref=f2e3]:
+    - generic: 本 Agent 由作者飞个人学习用途二创开发
+    - generic [ref=f2e7]:
+      - navigation [ref=f2e2558]:
+        - generic [ref=f2e2559]:
+          - generic [ref=f2e2572]:
+            - link "对话" [ref=f2e2573]:
+              - /url: "#/"
+            - link "内在世界" [ref=f2e2578]:
+              - /url: "#/insight"
+            - link "定时与问候" [ref=f2e2582]:
+              - /url: "#/schedule"
+            - link "媒体工坊" [ref=f2e2586]:
+              - /url: "#/media"
+            - link "测试中心" [ref=f2e2590]:
+              - /url: "#/health"
+            - link "仪表盘" [ref=f2e2594]:
+              - /url: "#/dashboard"
+            - link "Agent 管理" [ref=f2e2598]:
+              - /url: "#/settings/agents"
+            - link "模型与凭证" [ref=f2e2602]:
+              - /url: "#/settings/models"
+            - link "Skills 工具" [ref=f2e2606]:
+              - /url: "#/settings/tools"
+            - link "MCP 服务" [ref=f2e2610]:
+              - /url: "#/settings/mcp"
+            - link "插件管理" [ref=f2e2614]:
+              - /url: "#/settings/plugins"
+            - link "邮箱管理" [ref=f2e2618]:
+              - /url: "#/settings/mail"
+            - link "系统设置" [ref=f2e2622]:
+              - /url: "#/settings/system"
+            - link "工作流" [ref=f2e2626]:
+              - /url: "#/workflows"
+            - link "免责声明" [ref=f2e2630]:
+              - /url: "#/disclaimer"
+            - link "请作者喝杯小甜水" [ref=f2e2634]:
+              - /url: "#/sponsor"
+          - link "请作者喝杯小甜水" [ref=f2e2638]:
+            - /url: "#/sponsor"
+      - banner [ref=f2e2643]:
+        - button "Xiaoda" [ref=f2e2645]
+        - generic "署名":
+          - generic: 🌿
+          - generic: 由 飞 二创开发
+        - generic [ref=f2e2649]:
+          - generic "当前情绪：平静" [ref=f2e2650]:
+            - generic [ref=f2e2651]: 🌱
+            - generic [ref=f2e2652]: 🌿
+          - generic "连接中断..." [ref=f2e2653]
+      - main [ref=f2e17]:
+        - generic [ref=f2e2947]:
+          - generic [ref=f2e2948]:
+            - heading "🧚 Agent 管理" [level=2] [ref=f2e2949]
+            - button "＋ 新建子 Agent" [ref=f2e2950]
+          - generic [ref=f2e2954]:
+            - generic [ref=f2e2958]:
+              - generic [ref=f2e2959]: Xiaoda
+              - generic [ref=f2e2960]: Xiaoda
+            - generic [ref=f2e2961]:
+              - generic [ref=f2e2962]: mimo
+              - generic [ref=f2e2964]: qa
+              - generic [ref=f2e2966]: 主体
+            - generic [ref=f2e2968]: 🛠 8 个工具
+            - generic [ref=f2e2969]: 无路由描述
+  - button "Xiaoda的虚空终端" [ref=f2e105]:
+    - generic [ref=f2e106]: ▎>_

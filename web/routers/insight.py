@@ -178,6 +178,34 @@ async def today(request: Request) -> Any:
 # ── 记忆 ─────────────────────────────────────────────────────────
 
 
+def semantic_search_status(core: Any) -> dict:
+    store = getattr(core, "_vec_store", None)
+    if store is None:
+        return {
+            "enabled": False,
+            "mode": "disabled",
+            "reason": "embedding_key_missing",
+            "model": None,
+            "dimensions": 0,
+        }
+    ready = bool(getattr(store, "ready", False))
+    return {
+        "enabled": ready,
+        "mode": "remote",
+        "reason": None if ready else "vector_store_unavailable",
+        "model": getattr(store, "_embed_model", None),
+        "dimensions": int(getattr(store, "dimensions", 0) or 0),
+    }
+
+
+@router.get("/insight/memory-status", response_model=Envelope[dict])
+async def get_memory_status(request: Request) -> Any:
+    return Envelope(data={
+        "text_memory": {"enabled": True},
+        "semantic_search": semantic_search_status(request.app.state.core),
+    })
+
+
 @router.get("/insight/memories", response_model=Envelope[list[dict]])
 async def list_memories(request: Request,
                         q: str = Query(default=""),
@@ -418,8 +446,9 @@ async def create_memory(body: dict, request: Request) -> Any:
         emotion_label=emotion_label, timestamp=timestamp)
     # 写入向量索引（失败时记录警告，不静默吞掉）
     try:
-        if core.memory:
-            await core.memory.vec.upsert(mid, summary)
+        vec = getattr(core.memory, "vec", None) if core.memory else None
+        if vec is not None:
+            await vec.upsert(mid, summary)
     except (OSError, KeyError, ValueError, RuntimeError, TypeError) as e:
         logger.warning(f"insight.create_memory.vec_failed mid={mid}: {e}")
     await core.db.commit()

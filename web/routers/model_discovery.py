@@ -1,20 +1,26 @@
 """模型发现路由：自动发现所有已注册 provider 的可用模型，标注免费/付费。"""
 from __future__ import annotations
-from typing import Any
 
 import asyncio
-
 import os
+import socket
+import ssl
 import time
+from typing import Any
 
+import httpx
 from fastapi import APIRouter, Depends, Request
 from loguru import logger
 
-from web.schemas import Envelope
-from web.routers.auth import get_current_user
-from web.model_capabilities import get_capabilities
+from core.app_exception import ProtocolError
+from security.safe_outbound import build_safe_http_client
+
 # 缓存抽到 web._discovery_cache, 避免与 web.routers.models 互相导入
-from web._discovery_cache import _cache, _CACHE_TTL, _cache_lock
+from web._discovery_cache import _cache, _cache_lock, provider_discovery_cache
+from web.model_capabilities import get_capabilities
+from web.provider_urls import provider_endpoint
+from web.routers.auth import get_current_user
+from web.schemas import Envelope
 
 router = APIRouter(tags=["model-discovery"], dependencies=[Depends(get_current_user)])
 
@@ -39,6 +45,73 @@ BUILTIN_FALLBACK_MODELS = {
 }
 
 
+def _protocol_error_from_exception(exc: Exception) -> ProtocolError:
+    if isinstance(exc, ProtocolError):
+        return exc
+
+    chain: list[BaseException] = []
+    current: BaseException | None = exc
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        chain.append(current)
+        seen.add(id(current))
+        current = current.__cause__ or current.__context__
+
+    if any(isinstance(item, (ssl.SSLError, ssl.CertificateError)) for item in chain):
+        return ProtocolError("TLS 连接失败", code="TLS_FAILED", stage="tls", retryable=False, http_status=502, cause=exc)
+    chain_text = " ".join(str(item).upper() for item in chain)
+    if any(marker in chain_text for marker in ("CERTIFICATE_VERIFY_FAILED", "SSL:", "TLS:")):
+        return ProtocolError("TLS 连接失败", code="TLS_FAILED", stage="tls", retryable=False, http_status=502, cause=exc)
+    if any(isinstance(item, socket.gaierror) for item in chain):
+        return ProtocolError("DNS 解析失败", code="DNS_FAILED", stage="dns", retryable=True, http_status=502, cause=exc)
+    if any(getattr(item, "winerror", None) == 11001 for item in chain):
+        return ProtocolError("DNS 解析失败", code="DNS_FAILED", stage="dns", retryable=True, http_status=502, cause=exc)
+    if any(isinstance(item, TimeoutError) for item in chain):
+        return ProtocolError("上游请求超时", code="TIMEOUT", stage="connect", retryable=True, http_status=504, cause=exc)
+    try:
+        import httpx
+        if isinstance(exc, httpx.TimeoutException):
+            return ProtocolError("上游请求超时", code="TIMEOUT", stage="connect", retryable=True, http_status=504, cause=exc)
+        if isinstance(exc, httpx.ConnectError):
+            return ProtocolError("连接上游失败", code="CONNECTION_FAILED", stage="connect", retryable=True, http_status=502, cause=exc)
+        if isinstance(exc, httpx.HTTPStatusError):
+            status = exc.response.status_code
+            if status in {401, 403}:
+                return ProtocolError("上游认证失败", code="AUTH_FAILED", stage="auth", retryable=False, http_status=502, cause=exc)
+            if status == 429:
+                return ProtocolError("上游请求受限", code="RATE_LIMITED", stage="discover", retryable=True, http_status=429, cause=exc)
+            if status == 404:
+                return ProtocolError("模型发现端点不存在", code="MODEL_NOT_FOUND", stage="discover", retryable=False, http_status=404, cause=exc)
+    except ImportError:
+        pass
+    if isinstance(exc, OSError):
+        return ProtocolError("连接上游失败", code="CONNECTION_FAILED", stage="connect", retryable=True, http_status=502, cause=exc)
+    return ProtocolError("模型发现失败", code="INVALID_RESPONSE", stage="discover", retryable=True, http_status=502, cause=exc)
+
+
+async def _fetch_anthropic_models(
+    provider_id: str,
+    default_model: str,
+) -> list[dict]:
+    if not default_model:
+        raise ProtocolError(
+            "Anthropic provider 未配置默认模型",
+            code="MODEL_NOT_FOUND",
+            stage="discover",
+            retryable=False,
+            http_status=400,
+        )
+    caps = get_capabilities(default_model)
+    return [{
+        "id": default_model,
+        "display_name": caps.display_name,
+        "free": False,
+        "tool_calling": caps.tool_calling,
+        "vision": caps.vision,
+        "provider": provider_id,
+    }]
+
+
 async def _fetch_openai_compatible_models(
     provider_id: str,
     base_url: str,
@@ -54,9 +127,8 @@ async def _fetch_openai_compatible_models(
     以及列表元素为字符串或含 id/name/model 字段的 dict。
     """
     try:
-        import httpx
-        url = base_url.rstrip("/") + "/models"
-        # 修复 P2 Bug 12: ollama 等本地服务连接失败导致 discover.fetch_failed 告警风暴
+        url = provider_endpoint(base_url, "models")
+        # 本地服务连接失败时避免 discover.fetch_failed 告警风暴
         # 根因：本地服务未启动时，httpx 仍等待 15s 超时，且每次刷新模型列表都告警
         # 策略：本地 provider（127.0.0.1/localhost）用 3s 短超时；连接拒绝降级 debug
         # P1-8: 改用 httpx.Timeout 分别配置 connect（短）和 read（长，本地服务响应慢）超时
@@ -65,17 +137,16 @@ async def _fetch_openai_compatible_models(
             timeout = httpx.Timeout(connect=3.0, read=10.0, write=3.0, pool=3.0)
         else:
             timeout = httpx.Timeout(connect=15.0, read=30.0, write=15.0, pool=15.0)
-        async with httpx.AsyncClient(timeout=timeout) as client:
+        async with build_safe_http_client(base_url, timeout=timeout) as client:
             try:
                 resp = await client.get(
                     url,
                     headers={"Authorization": f"Bearer {api_key}"},
                 )
             except (httpx.ConnectError, ConnectionRefusedError) as e:
-                # 本地服务未启动：降级 debug，避免告警风暴
                 logger.debug("discover.connect_failed provider={} error={} (local={})",
                              provider_id, str(e)[:100], is_local)
-                return []
+                raise _protocol_error_from_exception(e) from e
             resp.raise_for_status()
             body = resp.json()
 
@@ -98,7 +169,13 @@ async def _fetch_openai_compatible_models(
                 "discover.unsupported_format provider={} body_preview={}",
                 provider_id, body_preview,
             )
-            return []
+            raise ProtocolError(
+                "上游模型列表格式无效",
+                code="INVALID_RESPONSE",
+                stage="discover",
+                retryable=False,
+                http_status=502,
+            )
 
         models = []
         for item in raw_items:
@@ -136,7 +213,7 @@ async def _fetch_openai_compatible_models(
         return models
     except Exception as e:
         logger.warning("discover.fetch_failed provider={} error={}", provider_id, str(e))
-        return []
+        raise _protocol_error_from_exception(e) from e
 
 
 async def _determine_free(provider_id: str, model_id: str, item: dict) -> bool:
@@ -146,7 +223,6 @@ async def _determine_free(provider_id: str, model_id: str, item: dict) -> bool:
 
     - OpenRouter: API 返回 pricing 字段，prompt==0 && completion==0 为免费
     - SiliconFlow: 抓取官网定价页面，inputPrice==0 && outputPrice==0 为免费
-    - Ollama: 本地部署，永远免费
     - Agnes: 免费平台
     - ModelScope: 推理 API 有免费额度
     - 其他 provider: 默认付费
@@ -168,10 +244,6 @@ async def _determine_free(provider_id: str, model_id: str, item: dict) -> bool:
             return prices.get("input", 1) == 0 and prices.get("output", 1) == 0
         # 定价数据获取失败时，无法确认 → 付费
         return False
-
-    # Ollama 本地部署，永远免费
-    if provider_id == "ollama":
-        return True
 
     # Agnes 免费平台
     if provider_id == "agnes":
@@ -201,8 +273,11 @@ async def _get_siliconflow_pricing() -> dict[str, dict] | None:
 
     try:
         import re as _re
-        import httpx
-        async with httpx.AsyncClient() as client:
+
+        async with build_safe_http_client(
+            "https://siliconflow.cn/v1",
+            timeout=15,
+        ) as client:
             resp = await client.get("https://siliconflow.cn/models",
                              headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
         html = resp.text
@@ -243,17 +318,16 @@ async def _get_siliconflow_pricing() -> dict[str, dict] | None:
 # ── 特殊 provider 的获取逻辑 ──────────────────────────────────────
 
 
-async def _fetch_openrouter_models(api_key: str) -> list[dict]:
+async def _fetch_openrouter_models(api_key: str, base_url: str) -> list[dict]:
     """OpenRouter 特殊处理：获取全部模型，同时标注免费和付费。
 
     与通用方法不同，OpenRouter 返回所有模型（包括付费的），
     通过 pricing 字段区分免费/付费。
     """
     try:
-        import httpx
-        async with httpx.AsyncClient(timeout=20) as client:
+        async with build_safe_http_client(base_url, timeout=20) as client:
             resp = await client.get(
-                "https://openrouter.ai/api/v1/models",
+                provider_endpoint(base_url, "models"),
                 headers={"Authorization": f"Bearer {api_key}"},
             )
             resp.raise_for_status()
@@ -285,16 +359,15 @@ async def _fetch_openrouter_models(api_key: str) -> list[dict]:
         return models
     except Exception as e:
         logger.warning("discover.openrouter_failed error={}", str(e))
-        return []
+        raise _protocol_error_from_exception(e) from e
 
 
-async def _fetch_siliconflow_models(api_key: str) -> list[dict]:
+async def _fetch_siliconflow_models(api_key: str, base_url: str) -> list[dict]:
     """SiliconFlow 特殊处理：使用 type/sub_type 参数过滤聊天模型。"""
     try:
-        import httpx
-        async with httpx.AsyncClient(timeout=15) as client:
+        async with build_safe_http_client(base_url, timeout=15) as client:
             resp = await client.get(
-                "https://api.siliconflow.cn/v1/models",
+                provider_endpoint(base_url, "models"),
                 params={"type": "text", "sub_type": "chat"},
                 headers={"Authorization": f"Bearer {api_key}"},
             )
@@ -328,7 +401,7 @@ async def _fetch_siliconflow_models(api_key: str) -> list[dict]:
         return models
     except Exception as e:
         logger.warning("discover.siliconflow_failed error={}", str(e))
-        return []
+        raise _protocol_error_from_exception(e) from e
 
 
 def _build_mimo_provider() -> dict:
@@ -364,31 +437,33 @@ def _get_all_providers() -> list[dict]:
 
     # 从 config_service 读取所有 provider
     try:
-        from web.config_service import get_config_service
         from web._provider_keys import load_provider_key
-        cfg = get_config_service()
-        custom = cfg.get("models.providers", {}) or {}
-        # 按 order 字段升序排列；未设置 order 的排在已设置之后，按字典插入顺序
-        keys_order = list(custom.keys())
-        sorted_custom = sorted(
-            custom.items(),
-            key=lambda kv: (kv[1].get("order", 9999), keys_order.index(kv[0]))
-        )
-        for pid, p in sorted_custom:
-            if not p.get("enabled", True):
-                continue
-            key = load_provider_key(pid)
-            if not key:
-                continue
-            providers.append({
-                "id": pid,
-                "label": p.get("label", pid),
-                "format": p.get("format", "openai"),
-                "base_url": p.get("base_url", ""),
-                "api_key": key,
-                "builtin": p.get("builtin", False),
-                "order": p.get("order", 9999),
-            })
+        from web.config_service import get_config_service
+        from web.custom_providers import _runtime_registration_coordinator
+        with _runtime_registration_coordinator:
+            cfg = get_config_service()
+            custom = cfg.get("models.providers", {}) or {}
+            keys_order = list(custom.keys())
+            sorted_custom = sorted(
+                custom.items(),
+                key=lambda kv: (kv[1].get("order", 9999), keys_order.index(kv[0]))
+            )
+            for pid, p in sorted_custom:
+                if not p.get("enabled", True):
+                    continue
+                key = load_provider_key(pid)
+                providers.append({
+                    "id": pid,
+                    "label": p.get("label", pid),
+                    "format": p.get("format", "openai"),
+                    "base_url": p.get("base_url", ""),
+                    "api_key": key,
+                    "default_model": p.get("default_model", ""),
+                    "builtin": p.get("builtin", False),
+                    "enabled": p.get("enabled", True),
+                    "manual_models": p.get("manual_models", []),
+                    "order": p.get("order", 9999),
+                })
     except Exception as e:
         logger.warning("discover.load_providers_failed error={}", str(e))
 
@@ -399,87 +474,102 @@ def _get_all_providers() -> list[dict]:
 # 注: invalidate_discovery_cache 已抽到 web._discovery_cache
 
 
+def _model_category(model: dict[str, Any]) -> tuple[str, str]:
+    declared = model.get("category") or model.get("type")
+    capabilities = model.get("capabilities")
+    if isinstance(capabilities, list):
+        joined = " ".join(str(item).lower() for item in capabilities)
+        for category, tokens in (("embedding", ("embedding", "embed")), ("image", ("image",)), ("video", ("video",)), ("tts", ("tts", "speech", "audio"))):
+            if any(token in joined for token in tokens):
+                return category, "declared"
+    if isinstance(declared, str) and declared.lower() in {"chat", "embedding", "image", "video", "tts"}:
+        return declared.lower(), "declared"
+    model_id = str(model.get("id") or "").lower()
+    if "embed" in model_id:
+        return "embedding", "inferred"
+    if any(token in model_id for token in ("tts", "speech", "voice", "audio")):
+        return "tts", "inferred"
+    if any(token in model_id for token in ("image", "vision-gen", "dall-e", "flux")):
+        return "image", "inferred"
+    if "video" in model_id:
+        return "video", "inferred"
+    return "chat", "inferred"
+
+
+def _enrich_models(models: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    enriched = []
+    for source in models:
+        model = dict(source)
+        category, evidence = _model_category(model)
+        model["category"] = category
+        model.setdefault("capability_source", "user" if model.get("manual") else evidence)
+        model.setdefault("display_name", model.get("id", ""))
+        enriched.append(model)
+    return enriched
+
+
+def _merge_manual_models(models: list[dict[str, Any]], manual_models: Any) -> list[dict[str, Any]]:
+    merged = [dict(model) for model in models]
+    known = {str(model.get("id") or "") for model in merged}
+    for item in manual_models if isinstance(manual_models, list) else []:
+        model_id = str(item.get("id") if isinstance(item, dict) else item).strip()
+        if not model_id or model_id in known:
+            continue
+        record = dict(item) if isinstance(item, dict) else {"id": model_id}
+        record.update({"id": model_id, "manual": True, "capability_source": "user"})
+        merged.append(record)
+        known.add(model_id)
+    return merged
+
+
+async def _discover_provider(provider: dict[str, Any]) -> dict[str, Any]:
+    provider_id = provider["id"]
+    cached = provider_discovery_cache.get(provider_id)
+    if cached is not None:
+        return cached
+    started = time.monotonic()
+    manual_models = provider.get("manual_models", [])
+    try:
+        if not provider.get("enabled", True):
+            result = {"provider": provider_id, "label": provider.get("label", provider_id), "models": _enrich_models(_merge_manual_models([], manual_models)), "status": "disabled", "stage": "config", "latency_ms": 0, "warnings": ["provider disabled"], "cached": False}
+            provider_discovery_cache.put(provider_id, result, success=True)
+            return result
+        if not provider.get("api_key") and manual_models:
+            models = []
+        elif provider_id == "mimo":
+            models = _build_mimo_provider().get("models", [])
+        elif provider_id == "openrouter":
+            models = await _fetch_openrouter_models(provider["api_key"], provider["base_url"])
+        elif provider_id == "siliconflow":
+            models = await _fetch_siliconflow_models(provider["api_key"], provider["base_url"])
+        elif provider.get("format", "openai") == "anthropic":
+            models = await _fetch_anthropic_models(provider_id=provider_id, default_model=provider.get("default_model", ""))
+        else:
+            models = await _fetch_openai_compatible_models(provider_id=provider_id, base_url=provider["base_url"], api_key=provider["api_key"], label=provider.get("label", provider_id))
+        if not models and provider_id in BUILTIN_FALLBACK_MODELS:
+            models = BUILTIN_FALLBACK_MODELS[provider_id]
+        models = _enrich_models(_merge_manual_models(models if isinstance(models, list) else [], manual_models))
+        result = {"provider": provider_id, "label": provider.get("label", provider_id), "models": models, "status": "ok" if models else "empty", "stage": "complete", "latency_ms": round((time.monotonic() - started) * 1000), "warnings": [] if models else ["no models discovered; add a manual model id"], "cached": False}
+        provider_discovery_cache.put(provider_id, result, success=True)
+        return result
+    except Exception as exc:
+        error = _protocol_error_from_exception(exc)
+        manual = _enrich_models(_merge_manual_models([], manual_models))
+        result = {"provider": provider_id, "label": provider.get("label", provider_id), "models": manual, "status": "manual" if manual else "error", "stage": error.stage, "latency_ms": round((time.monotonic() - started) * 1000), "warnings": [error.message], "cached": False, "error": {"code": error.code, "stage": error.stage, "retryable": error.retryable, "message": error.message}}
+        provider_discovery_cache.put(provider_id, result, success=False)
+        return result
+
+
 @router.get("/models/discover", response_model=Envelope[list[dict]])
 async def discover_models() -> Any:
-    """发现所有已注册 provider 的可用模型，结果缓存 30 分钟。
-
-    自动发现所有已注册的 provider（包括内置 MiMo 和自定义 provider），
-    通过 OpenAI 兼容的 /v1/models 接口获取模型列表。
-    OpenRouter 和 SiliconFlow 有特殊处理逻辑，其他 provider 使用通用获取方法。
-    每个模型标注 free（免费/付费）。
-    """
-    now = time.time()
-    async with _cache_lock:
-        if _cache["data"] is not None and (now - _cache["ts"]) < _CACHE_TTL:
-            return Envelope(data=_cache["data"])
-
-    all_providers = _get_all_providers()
-
-    # 并发获取所有 provider 的模型
-    tasks = []
-    provider_ids = []
-    for p in all_providers:
-        pid = p["id"]
-        provider_ids.append(pid)
-
-        if pid == "mimo":
-            # MiMo 不需要 API 调用，直接构建
-            async def _mimo_task() -> Any:
-                return _build_mimo_provider()
-            tasks.append(_mimo_task())
-        elif pid == "openrouter":
-            tasks.append(_fetch_openrouter_models(p["api_key"]))
-        elif pid == "siliconflow":
-            tasks.append(_fetch_siliconflow_models(p["api_key"]))
-        else:
-            # 通用 OpenAI 兼容 provider
-            tasks.append(_fetch_openai_compatible_models(
-                provider_id=pid,
-                base_url=p["base_url"],
-                api_key=p["api_key"],
-                label=p.get("label", pid),
-            ))
-
-    results = await asyncio.gather(*tasks, return_exceptions=True)
-
-    # 对标注为内置降级的 provider，若 results 中返回异常或空列表，使用 fallback
-    for i, (pid, models_or_exc) in enumerate(zip(provider_ids, results, strict=False)):
-        if pid in BUILTIN_FALLBACK_MODELS:
-            if isinstance(models_or_exc, Exception) or (isinstance(models_or_exc, list) and not models_or_exc):
-                results[i] = BUILTIN_FALLBACK_MODELS[pid]
-
-    result = []
-    for pid, models_or_exc in zip(provider_ids, results, strict=False):
-        if isinstance(models_or_exc, Exception):
-            logger.warning("discover.provider_failed provider={} error={}", pid, str(models_or_exc))
-            continue
-
-        # MiMo 返回的是完整的 provider dict
-        if pid == "mimo" and isinstance(models_or_exc, dict):
-            result.append(models_or_exc)
-            continue
-
-        # 其他 provider 返回模型列表
-        if isinstance(models_or_exc, list) and models_or_exc:
-            # 找到对应的 provider label
-            label = ""
-            for p in all_providers:
-                if p["id"] == pid:
-                    label = p.get("label", pid)
-                    break
-            result.append({
-                "provider": pid,
-                "label": label,
-                "models": models_or_exc,
-            })
-
+    if _cache.get("data") is None and not _cache.get("ts"):
+        provider_discovery_cache.invalidate()
+    providers = _get_all_providers()
+    result = await asyncio.gather(*(_discover_provider(provider) for provider in providers))
     async with _cache_lock:
         _cache["data"] = result
-        _cache["ts"] = now
+        _cache["ts"] = time.time()
     return Envelope(data=result)
-
-
-# ── POST /models/chat-model ──────────────────────────────────────
 
 
 @router.post("/models/chat-model", response_model=Envelope[dict])
@@ -488,7 +578,14 @@ async def set_chat_model(body: dict, request: Request) -> Any:
     provider = (body.get("provider") or "").strip()
     model_id = (body.get("model_id") or "").strip()
     if not provider or not model_id:
-        return Envelope(ok=False, error={"code": "invalid_input", "message": "provider 和 model_id 不能为空"})
+        from core.app_exception import ProtocolError
+        raise ProtocolError(
+            "provider 和 model_id 不能为空",
+            code="INVALID_REQUEST",
+            stage="validate",
+            retryable=False,
+            http_status=400,
+        )
 
     router_obj = request.app.state.core.router
 
@@ -510,8 +607,16 @@ async def set_chat_model(body: dict, request: Request) -> Any:
             logger.warning("discover.chat_model_broadcast_failed error={}", str(e))
         return Envelope(data=info)
     except Exception as e:
+        from core.app_exception import ProtocolError
         logger.error("discover.set_chat_model_failed error={}", str(e))
-        return Envelope(ok=False, error={"code": "set_failed", "message": str(e)})
+        raise ProtocolError(
+            "切换聊天模型失败",
+            code="MODEL_UPDATE_FAILED",
+            stage="probe",
+            retryable=True,
+            http_status=500,
+            cause=e,
+        ) from e
 
 
 def _ensure_custom_provider(provider: str, router_obj: Any) -> None:
@@ -519,26 +624,25 @@ def _ensure_custom_provider(provider: str, router_obj: Any) -> None:
 
     从 config_service 动态读取 provider 配置，不再硬编码。
     """
-    if hasattr(router_obj, "_custom_clients") and provider in router_obj._custom_clients:
-        return
-
-    # 先尝试从 config_service 读取
     try:
-        from web.config_service import get_config_service
         from web._provider_keys import load_provider_key
-        cfg = get_config_service()
-        record = cfg.get(f"models.providers.{provider}")
-        if record:
-            api_key = load_provider_key(provider)
-            if api_key:
-                from web.custom_providers import register_into_router
-                register_into_router(
-                    router_obj, provider,
-                    record.get("format", "openai"),
-                    record.get("base_url", ""),
-                    api_key,
-                )
+        from web.config_service import get_config_service
+        from web.custom_providers import _runtime_registration_coordinator, register_into_router
+        with _runtime_registration_coordinator:
+            if hasattr(router_obj, "_custom_clients") and provider in router_obj._custom_clients:
                 return
+            cfg = get_config_service()
+            record = cfg.get(f"models.providers.{provider}")
+            if record:
+                api_key = load_provider_key(provider)
+                if api_key:
+                    register_into_router(
+                        router_obj, provider,
+                        record.get("format", "openai"),
+                        record.get("base_url", ""),
+                        api_key,
+                    )
+                    return
     except Exception as e:
         logger.debug("discover.config_service_lookup_failed provider={} error={}", provider, str(e))
 

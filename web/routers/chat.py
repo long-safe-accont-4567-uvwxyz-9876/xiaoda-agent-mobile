@@ -1,21 +1,22 @@
 from __future__ import annotations
-from typing import Any
 
 import asyncio
+import json
 import os
 import re
 import tempfile
 import time
 import uuid
 from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import PlainTextResponse
 from loguru import logger
 
-from web.schemas import Envelope, ChatRequest, SessionInfo, MessageItem, SlashCommand
-from web.routers.auth import get_current_user
 from emotion.emotion_simple import detect_emotion
+from web.routers.auth import get_current_user
+from web.schemas import ChatRequest, Envelope, MessageItem, SessionInfo, SlashCommand
 
 router = APIRouter(tags=["chat"], dependencies=[Depends(get_current_user)])
 
@@ -28,8 +29,7 @@ try:
 except ImportError:
     UPLOAD_DIR = Path(__file__).resolve().parent.parent / "media" / "upload"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-MAX_IMAGE_SIZE = 10 * 1024 * 1024  # 10MB
-MAX_DOC_SIZE = 20 * 1024 * 1024  # 20MB
+MAX_UPLOAD_SIZE = int(json.loads((Path(__file__).resolve().parents[2] / "config" / "mobile_contract.json").read_text(encoding="utf-8"))["upload_max_bytes"])
 _ALLOWED_IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
 # P0 新增（Task 1.9）：文档上传支持 — 与图片上传分离
 # 根因：原 upload-image 端点仅接受 image/*，文档（PDF/DOCX 等）无法上传。
@@ -201,8 +201,16 @@ async def chat(req: ChatRequest, request: Request) -> Any:
             agent=req.agent, app=request.app)
         return Envelope(data=data)
     except Exception as e:
-        logger.error("webui.chat.failed error={}", str(e))
-        return Envelope(ok=False, error={"code": "CHAT_ERROR", "message": str(e)})
+        from core.app_exception import ProtocolError
+        logger.error("webui.chat.failed error={}", str(e), exc_info=True)
+        raise ProtocolError(
+            "聊天处理失败",
+            code="CHAT_FAILED",
+            stage="probe",
+            retryable=True,
+            http_status=502,
+            cause=e,
+        ) from e
 
 
 @router.post("/chat/upload-image", response_model=Envelope[dict])
@@ -210,8 +218,8 @@ async def upload_image(file: UploadFile = File(...)) -> Any:
     if not file.content_type or not file.content_type.startswith("image/"):
         raise HTTPException(400, "仅允许上传图片文件")
     content = await file.read()
-    if len(content) > MAX_IMAGE_SIZE:
-        raise HTTPException(400, "图片大小不能超过 10MB")
+    if len(content) > MAX_UPLOAD_SIZE:
+        raise HTTPException(400, "文件大小超过上传上限")
     ext = Path(file.filename or "image.png").suffix.lower() or ".png"
     if ext not in _ALLOWED_IMAGE_EXTS:
         raise HTTPException(400, f"不支持的图片格式，仅允许 {', '.join(sorted(_ALLOWED_IMAGE_EXTS))}")
@@ -232,8 +240,8 @@ async def upload_doc(file: UploadFile = File(...)) -> Any:
     与 upload-image 分离：文档不走 vision API，而是返回路径供 document_reader 工具读取。
     """
     content = await file.read()
-    if len(content) > MAX_DOC_SIZE:
-        raise HTTPException(400, "文档大小不能超过 20MB")
+    if len(content) > MAX_UPLOAD_SIZE:
+        raise HTTPException(400, "文件大小超过上传上限")
     ext = Path(file.filename or "doc.pdf").suffix.lower() or ".pdf"
     if ext not in _ALLOWED_DOC_EXTS:
         raise HTTPException(400, f"不支持的文档格式，仅允许 {', '.join(sorted(_ALLOWED_DOC_EXTS))}")
@@ -253,8 +261,8 @@ async def upload_doc(file: UploadFile = File(...)) -> Any:
 @router.post("/chat/speech-to-text", response_model=Envelope[dict])
 async def speech_to_text(file: UploadFile = File(...)) -> Any:
     content = await file.read()
-    if len(content) > 20 * 1024 * 1024:  # 20MB
-        raise HTTPException(400, "音频大小不能超过 20MB")
+    if len(content) > MAX_UPLOAD_SIZE:
+        raise HTTPException(400, "文件大小超过上传上限")
 
     try:
         from config import ASR_API_KEY, ASR_BASE_URL, ASR_MODEL

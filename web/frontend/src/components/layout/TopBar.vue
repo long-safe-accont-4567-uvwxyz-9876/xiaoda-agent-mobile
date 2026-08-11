@@ -34,6 +34,11 @@ const stageText: Record<string, string> = {
   tool: '🛠 ' + t('topBar.usingTool') + '...',
   replying: '✍️ ' + t('topBar.replying') + '...',
 }
+
+function onAvatarError(event: Event) {
+  const image = event.currentTarget as HTMLImageElement
+  image.style.display = 'none'
+}
 </script>
 
 <template>

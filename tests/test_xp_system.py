@@ -244,6 +244,28 @@ def test_persistence_valid_json(tmp_path):
     assert data["users"]["u1"]["xp"] == 50
 
 
+def test_persistence_retries_transient_windows_replace_lock(tmp_path):
+    import core.xp_system as mod
+
+    system = mod.XPSystem(data_dir=tmp_path)
+    real_replace = mod.os.replace
+    attempts = 0
+
+    def flaky_replace(source, target):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise PermissionError(5, "access denied")
+        real_replace(source, target)
+
+    with patch.object(mod.os, "replace", side_effect=flaky_replace), \
+         patch.object(mod.time, "sleep"):
+        system.add_xp("u1", 5, "test")
+
+    assert attempts == 3
+    assert system._state_path.exists()
+
+
 def test_load_corrupted_file(tmp_path):
     """加载损坏文件时应回退到空状态, 不抛异常"""
     import core.xp_system as mod

@@ -1,27 +1,26 @@
 """模型与凭证路由（R4/R13）：provider CRUD、路由表热改、凭证池状态、用量统计。"""
 from __future__ import annotations
-from typing import Any
 
 import json
-import os
+import re
 import time
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from loguru import logger
 
-from web.schemas import Envelope
-from web.routers.auth import get_current_user
 # 缓存与凭证读写抽到独立模块, 避免与 web.routers.model_discovery / model_router 互相导入
 from web._discovery_cache import invalidate_discovery_cache
 from web._provider_keys import (
-    _get_cred_dir,
-    _key_file,
     _mask,
     load_provider_key,
 )
-import contextlib
+from web.provider_urls import validate_provider_base_url
+from web.routers.auth import get_current_user
+from web.schemas import Envelope
 
 router = APIRouter(tags=["models"], dependencies=[Depends(get_current_user)])
+_PROVIDER_ID_PATTERN = re.compile(r"[A-Za-z0-9_-]+", re.ASCII)
 
 
 def _cfg(request: Request) -> Any:
@@ -31,6 +30,62 @@ def _cfg(request: Request) -> Any:
 
 def _router_of(request: Request) -> Any:
     return request.app.state.core.router
+
+
+def get_provider_application_service(app: Any, config_service: Any | None = None) -> Any:
+    from utils.credential_pool import get_credential_pool
+    from web.config_service import get_config_service
+    from web.provider_application import (
+        ProviderApplicationService,
+        ProviderCredentialStore,
+        ProviderRepository,
+        ProviderRuntimeRegistry,
+    )
+
+    existing = getattr(app.state, "provider_application_service", None)
+    if existing is not None:
+        return existing
+    service = ProviderApplicationService(
+        ProviderRepository(config_service or get_config_service()),
+        ProviderCredentialStore(),
+        ProviderRuntimeRegistry(app.state.core.router, get_credential_pool()),
+    )
+    service.recover_pending_transactions()
+    app.state.provider_application_service = service
+    return service
+
+
+def _provider_service(request: Request) -> Any:
+    return get_provider_application_service(request.app, _cfg(request))
+
+
+def _provider_references(request: Request, provider_id: str) -> dict[str, Any]:
+    from web.provider_references import ProviderReferenceCollector
+
+    collector = ProviderReferenceCollector(
+        _cfg(request),
+        _router_of(request),
+        getattr(request.app.state, "agent_registry", None),
+    )
+    return collector.collect(provider_id)
+
+
+async def _run_provider_operation(operation: Any) -> Any:
+    try:
+        return await operation
+    except Exception as error:
+        from core.app_exception import ProtocolError
+
+        failed_stages = getattr(error, "failed_stages", ())
+        raise ProtocolError(
+            "provider 操作失败",
+            code="PROVIDER_OPERATION_FAILED",
+            stage="persist",
+            retryable=False,
+            http_status=500,
+            details={"compensation_failed_stages": list(failed_stages)} if failed_stages else None,
+            cause=error,
+        ) from error
 
 
 async def _audit(request: Request, action: str, detail: str) -> None:
@@ -53,6 +108,59 @@ async def _broadcast_changed() -> None:
 # ── providers ────────────────────────────────────────────────────
 
 
+def _provider_text(value: Any, field: str, max_length: int, *, default: str = "") -> str:
+    if value is None:
+        return default
+    if not isinstance(value, str):
+        raise HTTPException(400, f"{field} must be a string")
+    text = value.strip()
+    if len(text) > max_length:
+        raise HTTPException(400, f"{field} is too long")
+    return text
+
+
+def _provider_id(value: Any, *, default: str = "") -> str:
+    provider_id = _provider_text(value, "id", 64, default=default)
+    if not provider_id or _PROVIDER_ID_PATTERN.fullmatch(provider_id) is None:
+        raise HTTPException(400, "id 必须匹配 [A-Za-z0-9_-]+")
+    return provider_id
+
+
+def _provider_enabled(value: Any) -> bool:
+    if not isinstance(value, bool):
+        raise HTTPException(400, "enabled must be boolean")
+    return value
+
+
+def _manual_models(value: Any) -> list[dict[str, str]]:
+    if value in (None, ""):
+        return []
+    if not isinstance(value, list) or len(value) > 100:
+        raise HTTPException(400, "manual_models must be an array with at most 100 entries")
+    result = []
+    seen = set()
+    for item in value:
+        model_id = str(item.get("id") if isinstance(item, dict) else item).strip()
+        if not model_id or len(model_id) > 200 or model_id in seen:
+            continue
+        category = str(item.get("category", "chat")) if isinstance(item, dict) else "chat"
+        if category not in {"chat", "embedding", "image", "video", "tts"}:
+            raise HTTPException(400, "invalid manual model category")
+        result.append({"id": model_id, "category": category})
+        seen.add(model_id)
+    return result
+
+
+async def _diagnose_provider(record: dict[str, Any], api_key: str, body: dict[str, Any]) -> dict[str, Any]:
+    from web.provider_diagnostics import ProviderDiagnostics
+
+    return await ProviderDiagnostics().run(
+        record, api_key,
+        model_id=body.get("model_id") or record.get("default_model"),
+        include_chat=body.get("include_chat", True),
+    )
+
+
 def list_providers_data(cfg: Any) -> list[dict]:
     out = []
     custom = cfg.get("models.providers", {}) or {}
@@ -64,18 +172,17 @@ def list_providers_data(cfg: Any) -> list[dict]:
     )
     for pid, p in sorted_custom:
         key = load_provider_key(pid)
-        # 没有 API key 的自定义 provider 不显示
-        if not key:
-            continue
         out.append({
             "id": pid,
             "label": p.get("label", pid),
             "format": p.get("format", "openai"),
             "base_url": p.get("base_url", ""),
             "builtin": p.get("builtin", False),
-            "key_masked": _mask(key),
+            "key_masked": _mask(key) if key else "",
+            "has_key": bool(key),
             "enabled": p.get("enabled", True),
             "default_model": p.get("default_model", ""),
+            "manual_models": p.get("manual_models", []),
             "order": p.get("order", 9999),
         })
     return out
@@ -86,47 +193,63 @@ async def list_providers(request: Request) -> Any:
     return Envelope(data=list_providers_data(_cfg(request)))
 
 
+@router.post("/models/providers/diagnose", response_model=Envelope[dict])
+async def diagnose_provider_candidate(body: dict, request: Request) -> Any:
+    pid = _provider_id(body.get("id"), default="candidate")
+    fmt = body.get("format", "openai")
+    if fmt not in ("openai", "anthropic"):
+        raise HTTPException(400, "format must be openai or anthropic")
+    record = {
+        "label": _provider_text(body.get("label"), "label", 128, default=pid) or pid,
+        "format": fmt,
+        "base_url": validate_provider_base_url(body.get("base_url") or ""),
+        "default_model": _provider_text(body.get("default_model"), "default_model", 256),
+        "manual_models": _manual_models(body.get("manual_models", [])),
+        "enabled": _provider_enabled(body.get("enabled", True)),
+    }
+    api_key = _provider_text(body.get("api_key"), "api_key", 8192)
+    if not api_key:
+        raise HTTPException(400, "api_key is required for diagnostics")
+    diagnostics = await _diagnose_provider(record, api_key, body)
+    return Envelope(data={"normalized": dict(record, id=pid), "diagnostics": diagnostics})
+
+
 @router.post("/models/providers", response_model=Envelope[dict])
 async def create_provider(body: dict, request: Request) -> Any:
-    pid = (body.get("id") or "").strip()
+    pid = _provider_id(body.get("id"))
     fmt = body.get("format", "openai")
-    base_url = (body.get("base_url") or "").strip()
-    if not pid or not pid.replace("-", "_").isidentifier():
-        raise HTTPException(400, "id 必须是合法标识符（字母/数字/-/_）")
+    base_url = validate_provider_base_url(body.get("base_url") or "")
     if pid in ("mimo",):
         raise HTTPException(400, "不能覆盖内置 provider")
     if fmt not in ("openai", "anthropic"):
         raise HTTPException(400, "format 必须是 openai 或 anthropic")
-    if not base_url.startswith(("http://", "https://")):
-        raise HTTPException(400, "base_url 必须是 http(s) URL")
     # SSRF 防护：校验 URL 不指向内网/元数据服务。
-    # 本地/容器内受信服务（如 Ollama localhost:11434）显式配置时放行，
-    # 与 setup 向导的 _test_ollama 本地豁免保持一致。
-    from security.ssrf_guard import validate_url, is_local_host
-    if not is_local_host(base_url):
-        allowed, reason = validate_url(base_url)
-        if not allowed:
-            raise HTTPException(400, f"base_url 安全检查失败: {reason}")
+    # 本地/容器内受信服务显式配置时放行。
     cfg = _cfg(request)
     if pid in (cfg.get("models.providers", {}) or {}):
         raise HTTPException(400, f"provider {pid} 已存在")
     record = {
-        "label": body.get("label", pid),
+        "label": _provider_text(body.get("label"), "label", 128, default=pid) or pid,
         "format": fmt,
         "base_url": base_url,
-        "default_model": body.get("default_model", ""),
-        "enabled": True,
+        "default_model": _provider_text(body.get("default_model"), "default_model", 256),
+        "manual_models": _manual_models(body.get("manual_models", [])),
+        "enabled": _provider_enabled(body.get("enabled", True)),
     }
-    api_key = (body.get("api_key") or "").strip()
+    api_key = _provider_text(body.get("api_key"), "api_key", 8192)
     if not api_key:
-        raise HTTPException(400, "api_key 不能为空")
-    # 先注册客户端，成功后再持久化配置（避免部分失败状态）
+        raise HTTPException(400, "api_key cannot be empty")
+    if body.get("validate_only"):
+        validated = await _provider_service(request).validate_candidate(pid, record, api_key)
+        return Envelope(data={
+            "validated": True, "probe_performed": False,
+            "normalized": dict(validated, id=pid),
+        })
     try:
-        _save_key_and_register(request, pid, fmt, base_url, api_key)
+        record = await _run_provider_operation(_provider_service(request).create(pid, record, api_key))
     except Exception as e:
         logger.error("provider.register_failed id={} error={}", pid, str(e))
-        raise HTTPException(500, f"provider 注册失败: {e}") from None
-    cfg.set(f"models.providers.{pid}", record)
+        raise
     await _audit(request, "provider.create", pid)
     await invalidate_discovery_cache()
     await _broadcast_changed()
@@ -136,31 +259,52 @@ async def create_provider(body: dict, request: Request) -> Any:
 @router.put("/models/providers/{pid}", response_model=Envelope[dict])
 async def update_provider(pid: str, body: dict, request: Request) -> Any:
     cfg = _cfg(request)
-    record = cfg.get(f"models.providers.{pid}")
-    if pid in ("mimo",) or not record:
-        raise HTTPException(404 if not record else 400,
-                            "内置 provider 不可修改" if record else f"provider {pid} 不存在")
-    for f in ("label", "format", "base_url", "default_model", "enabled"):
-        if f in body and body[f] is not None:
-            record[f] = body[f]
-    # base_url 变更时同样做 SSRF 校验（本地服务如 Ollama 放行）
-    if "base_url" in body and body["base_url"]:
-        from security.ssrf_guard import validate_url, is_local_host
-        _burl = str(body["base_url"]).strip()
-        if not _burl.startswith(("http://", "https://")):
-            raise HTTPException(400, "base_url 必须是 http(s) URL")
-        if not is_local_host(_burl):
-            allowed, reason = validate_url(_burl)
-            if not allowed:
-                raise HTTPException(400, f"base_url 安全检查失败: {reason}")
-    cfg.set(f"models.providers.{pid}", record)
-    key = load_provider_key(pid)
-    if key:
-        _save_key_and_register(request, pid, record["format"], record["base_url"], key)
+    existing = cfg.get(f"models.providers.{pid}")
+    if pid in ("mimo",) or not existing:
+        raise HTTPException(404 if not existing else 400,
+                            "内置 provider 不可修改" if existing else f"provider {pid} 不存在")
+    changes = {}
+    normalized_base_url = None
+    if "base_url" in body and body["base_url"] is not None:
+        normalized_base_url = validate_provider_base_url(str(body["base_url"]))
+    if "format" in body and body["format"] not in ("openai", "anthropic"):
+        raise HTTPException(400, "format 必须是 openai 或 anthropic")
+    if "label" in body:
+        changes["label"] = _provider_text(body.get("label"), "label", 128)
+    if "format" in body and body["format"] is not None:
+        changes["format"] = body["format"]
+    if "default_model" in body:
+        changes["default_model"] = _provider_text(body.get("default_model"), "default_model", 256)
+    if "enabled" in body:
+        changes["enabled"] = _provider_enabled(body.get("enabled"))
+    if "manual_models" in body:
+        changes["manual_models"] = _manual_models(body.get("manual_models"))
+    if normalized_base_url is not None:
+        changes["base_url"] = normalized_base_url
+    existing_key = load_provider_key(pid)
+    replacement_key = _provider_text(body.get("api_key"), "api_key", 8192) or None
+    effective_key = replacement_key or existing_key
+    if body.get("validate_only"):
+        record = dict(existing)
+        record.update(changes)
+        validated = await _provider_service(request).validate_candidate(pid, record, effective_key)
+        return Envelope(data={"validated": True, "probe_performed": False, "normalized": dict(validated, id=pid)})
+    record = await _run_provider_operation(_provider_service(request).update(pid, changes, api_key=replacement_key))
+    key = replacement_key or existing_key
     await _audit(request, "provider.update", pid)
     await invalidate_discovery_cache()
     await _broadcast_changed()
-    return Envelope(data=dict(record, id=pid, key_masked=_mask(key), builtin=False))
+    return Envelope(data=dict(
+        record, id=pid, key_masked=_mask(key), builtin=False,
+        references=_provider_references(request, pid)["references"],
+    ))
+
+
+@router.get("/models/providers/{pid}/references", response_model=Envelope[dict])
+async def provider_references(pid: str, request: Request) -> Any:
+    if not _cfg(request).get(f"models.providers.{pid}"):
+        raise HTTPException(404, f"provider {pid} does not exist")
+    return Envelope(data=_provider_references(request, pid))
 
 
 @router.delete("/models/providers/{pid}", response_model=Envelope[dict])
@@ -170,31 +314,45 @@ async def delete_provider(pid: str, request: Request) -> Any:
     cfg = _cfg(request)
     if not cfg.get(f"models.providers.{pid}"):
         raise HTTPException(404, f"provider {pid} 不存在")
-    # 检查是否有路由仍指向它
-    from model_router import ROUTE_TABLE
-    used_by = [t for t, c in ROUTE_TABLE.items() if c.get("client") == pid]
-    if used_by:
-        raise HTTPException(400, f"路由 {', '.join(used_by)} 仍指向该 provider，请先改路由")
-    cfg.delete(f"models.providers.{pid}")
-    _key_file(pid).unlink(missing_ok=True)
-    from web.custom_providers import unregister_from_router
-    unregister_from_router(_router_of(request), pid)
+    references = _provider_references(request, pid)
+    if references["in_use"]:
+        from core.app_exception import ProtocolError
+
+        raise ProtocolError(
+            "provider is still referenced",
+            code="PROVIDER_IN_USE",
+            stage="references",
+            retryable=False,
+            http_status=409,
+            details=references,
+        )
+    await _run_provider_operation(_provider_service(request).delete(pid))
     await _audit(request, "provider.delete", pid)
     await invalidate_discovery_cache()
     await _broadcast_changed()
     return Envelope(data={"deleted": pid})
 
 
-def _save_key_and_register(request: Request, pid: str, fmt: str,
-                           base_url: str, api_key: str) -> None:
-    _get_cred_dir().mkdir(parents=True, exist_ok=True)
-    fp = _key_file(pid)
-    from web._provider_keys import _encode_key
-    fp.write_text(_encode_key(api_key) + "\n", encoding="utf-8")
-    with contextlib.suppress(OSError):
-        os.chmod(fp, 0o600)
-    from web.custom_providers import register_into_router
-    register_into_router(_router_of(request), pid, fmt, base_url, api_key)
+@router.post("/models/providers/{pid}/test", response_model=Envelope[dict])
+async def test_provider_connection(pid: str, body: dict, request: Request) -> Any:
+    record = _cfg(request).get(f"models.providers.{pid}")
+    if not record:
+        raise HTTPException(404, f"provider {pid} does not exist")
+    api_key = str(body.get("api_key") or "").strip() or load_provider_key(pid)
+    if not api_key:
+        raise HTTPException(400, "provider key is not configured")
+    return Envelope(data=await _diagnose_provider(record, api_key, body))
+
+
+@router.post("/models/providers/{pid}/discover", response_model=Envelope[dict])
+async def discover_provider_models(pid: str, request: Request) -> Any:
+    from web.routers.model_discovery import _discover_provider, _get_all_providers
+
+    provider = next((item for item in _get_all_providers() if item["id"] == pid), None)
+    if provider is None:
+        raise HTTPException(404, f"provider {pid} does not exist")
+    await invalidate_discovery_cache(pid)
+    return Envelope(data=await _discover_provider(provider))
 
 
 @router.post("/models/providers/{pid}/key", response_model=Envelope[dict])
@@ -206,9 +364,10 @@ async def set_provider_key(pid: str, body: dict, request: Request) -> Any:
     record = cfg.get(f"models.providers.{pid}")
     if not record:
         raise HTTPException(404, f"provider {pid} 不存在（内置 provider 的 key 走 .env）")
-    _save_key_and_register(request, pid, record.get("format", "openai"),
-                           record.get("base_url", ""), api_key)
+    await _run_provider_operation(_provider_service(request).set_key(pid, api_key))
     await _audit(request, "provider.key", pid)
+    await invalidate_discovery_cache()
+    await _broadcast_changed()
     return Envelope(data={"id": pid, "key_masked": _mask(api_key)})
 
 
@@ -217,16 +376,9 @@ async def reorder_providers(body: dict, request: Request) -> Any:
     order_list = body.get("order")
     if not isinstance(order_list, list):
         raise HTTPException(400, "order 必须是字符串数组")
-    cfg = _cfg(request)
-    custom = cfg.get("models.providers", {}) or {}
     # 忽略 mimo（内置 provider 不可重排序）
     filtered = [pid for pid in order_list if pid != "mimo"]
-    # 仅更新列表中且实际存在的 provider；不在列表中的 provider 保留原 order 值
-    for idx, pid in enumerate(filtered):
-        if pid in custom:
-            record = dict(custom[pid])
-            record["order"] = idx
-            cfg.set(f"models.providers.{pid}", record)
+    await _run_provider_operation(_provider_service(request).reorder(filtered))
     await _audit(request, "provider.reorder", json.dumps(filtered, ensure_ascii=False))
     await invalidate_discovery_cache()
     await _broadcast_changed()
@@ -239,7 +391,7 @@ async def reorder_providers(body: dict, request: Request) -> Any:
 
 @router.get("/models/routes", response_model=Envelope[dict])
 async def list_routes(request: Request) -> Any:
-    from model_router import ROUTE_TABLE, FALLBACK_ROUTE
+    from model_router import FALLBACK_ROUTE, ROUTE_TABLE
     routes = {}
     for task, c in ROUTE_TABLE.items():
         routes[task] = {

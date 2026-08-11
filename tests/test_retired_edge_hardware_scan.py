@@ -31,11 +31,9 @@ SCANNED_PATHS = (
     "web/agent_registry.py",
     "web/config_service.py",
     "web/media_tasks.py",
-    "web/routers/local_deploy.py",
     "web/server.py",
     "web/frontend/src/i18n/en.ts",
     "web/frontend/src/i18n/zh.ts",
-    "web/frontend/src/views/LocalDeployView.vue",
     "xiaoda-agent.spec",
     ".env.example",
 )
@@ -90,11 +88,9 @@ def test_runtime_config_deployment_and_current_docs_have_no_retired_residue():
 
 def test_pc_gpu_capability_remains_supported():
     detector = (ROOT / "core" / "capability_detector.py").read_text(encoding="utf-8")
-    local_deploy = (ROOT / "web" / "routers" / "local_deploy.py").read_text(encoding="utf-8")
     vision_service = (ROOT / "utils" / "vision_service.py").read_text(encoding="utf-8")
     assert "nvidia-smi" in detector
     assert "rocm-smi" in detector
-    assert '"id": "gpu"' in local_deploy
     assert "set_vulkan_device(gpu_index)" in vision_service
 
 

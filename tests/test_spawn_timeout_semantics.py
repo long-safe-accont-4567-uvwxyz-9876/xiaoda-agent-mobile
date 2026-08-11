@@ -64,6 +64,7 @@ async def test_spawn_explicit_short_timeout_logs_task_timeout():
 async def test_spawn_default_no_timeout_keeps_strong_ref():
     """默认无超时时，_bg_tasks 仍持有强引用直到任务完成。"""
     started = asyncio.Event()
+    before = set(_bg_tasks)
 
     async def slow_coro():
         started.set()
@@ -71,6 +72,7 @@ async def test_spawn_default_no_timeout_keeps_strong_ref():
 
     _spawn(slow_coro())
     await started.wait()
-    assert len(_bg_tasks) > 0, "任务运行期间应在 _bg_tasks 中保持强引用"
+    spawned = set(_bg_tasks) - before
+    assert len(spawned) == 1, "任务运行期间应在 _bg_tasks 中保持强引用"
     await asyncio.sleep(0.3)
-    assert all(t.done() for t in _bg_tasks), "任务完成后应被回调移除"
+    assert spawned.isdisjoint(_bg_tasks), "任务完成后应被回调移除"

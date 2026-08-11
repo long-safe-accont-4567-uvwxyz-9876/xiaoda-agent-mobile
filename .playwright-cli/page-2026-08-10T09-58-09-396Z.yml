@@ -1,0 +1,53 @@
+- generic [active] [ref=f2e1]:
+  - generic [ref=f2e3]:
+    - generic: 本 Agent 由作者飞个人学习用途二创开发
+    - generic [ref=f2e7]:
+      - banner [ref=f2e8]:
+        - button "打开全部能力" [ref=f2e9]
+        - button "打开快捷状态" [ref=f2e12]:
+          - strong [ref=f2e13]: Xiaoda
+          - generic [ref=f2e14]: 待命
+        - button "查看连接状态：重连中" [ref=f2e15]:
+          - generic [ref=f2e16]: ↻
+      - main [ref=f2e17]:
+        - generic [ref=f2e509]:
+          - generic [ref=f2e510]:
+            - heading "🛠 Skills 工具" [level=2] [ref=f2e511]
+            - generic [ref=f2e512]: 共 0 个工具
+            - generic [ref=f2e513]: LLM 可见 /
+          - generic [ref=f2e515]:
+            - generic [ref=f2e520]:
+              - generic [ref=f2e521]: 已安装
+              - generic [ref=f2e524]: 技能市场
+            - generic [ref=f2e529]:
+              - generic [ref=f2e531]:
+                - generic [ref=f2e532]:
+                  - generic [ref=f2e533]: 📜 Skills（SKILL.md 知识注入）
+                  - generic [ref=f2e534]:
+                    - button "⬆ 上传 SKILL" [ref=f2e535]
+                    - button "＋ 手写新建" [ref=f2e537]
+                - paragraph [ref=f2e539]: 还没有 Skill。上传 SKILL.md 后其内容会注入系统提示词，助手下一条消息即掌握该技能。
+              - generic [ref=f2e540]:
+                - generic [ref=f2e543]:
+                  - textbox "搜索工具名/描述…" [ref=f2e544]
+                  - generic: 搜索工具名/描述…
+                - generic [ref=f2e549]:
+                  - generic: 分类
+                  - img "loading" [ref=f2e550]
+                - generic [ref=f2e559]:
+                  - generic: 来源
+                  - img "loading" [ref=f2e560]
+      - navigation "主要导航" [ref=f2e58]:
+        - link "对话" [ref=f2e59]:
+          - /url: "#/"
+        - link "Agent 管理" [ref=f2e65]:
+          - /url: "#/settings/agents"
+        - link "内在世界" [ref=f2e70]:
+          - /url: "#/insight"
+        - link "Skills 工具" [ref=f2e75]:
+          - /url: "#/settings/tools"
+          - generic [ref=f2e567]: 当前
+        - link "系统设置" [ref=f2e80]:
+          - /url: "#/settings/system"
+  - button "Xiaoda的虚空终端" [ref=f2e105]:
+    - generic [ref=f2e106]: ▎>_

@@ -1,29 +1,12 @@
 <script setup lang="ts">
 import SumeruIcon from '../fx/SumeruIcon.vue'
 import DendroEmblem from '../fx/DendroEmblem.vue'
-import { t, tf, state as i18nState } from '../../i18n'
+import { t } from '../../i18n'
+import { desktopCapabilities } from '../../navigation/capabilities'
 
 defineProps<{ expanded: boolean }>()
 const emit = defineEmits<{ 'update:expanded': [value: boolean] }>()
 
-const navItems = [
-  { icon: 'chat', labelKey: 'nav.chat', route: '/' },
-  { icon: 'agents', labelKey: 'nav.agents', route: '/settings/agents' },
-  { icon: 'models', labelKey: 'nav.models', route: '/settings/models' },
-  { icon: 'tools', labelKey: 'nav.tools', route: '/settings/tools' },
-  { icon: 'mcp', labelKey: 'nav.mcp', route: '/settings/mcp' },
-  { icon: 'flow', labelKey: 'nav.workflows', route: '/workflows' },
-  { icon: 'plugins', labelKey: 'nav.plugins', route: '/settings/plugins' },
-  { icon: 'insight', labelKey: 'nav.insight', route: '/insight' },
-  { icon: 'schedule', labelKey: 'nav.schedule', route: '/schedule' },
-  { icon: 'mail', labelKey: 'nav.mail', route: '/settings/mail' },
-  { icon: 'media', labelKey: 'nav.media', route: '/media' },
-  { icon: 'health', labelKey: 'nav.health', route: '/health' },
-  { icon: 'dashboard', labelKey: 'nav.dashboard', route: '/dashboard' },
-  { icon: 'chip', labelKey: 'nav.localDeploy', route: '/local-deploy' },
-  { icon: 'settings', labelKey: 'nav.settings', route: '/settings/system' },
-  { icon: 'alert', labelKey: 'nav.disclaimer', route: '/disclaimer' },
-]
 </script>
 
 <template>
@@ -38,9 +21,9 @@ const navItems = [
 
       <div class="nav-items">
         <router-link
-          v-for="item in navItems"
-          :key="item.route"
-          :to="item.route"
+          v-for="item in desktopCapabilities"
+          :key="item.routeName"
+          :to="item.path"
           class="nav-item"
           :title="t(item.labelKey)"
         >

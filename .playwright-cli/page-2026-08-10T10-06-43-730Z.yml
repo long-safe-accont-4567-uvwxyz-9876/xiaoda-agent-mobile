@@ -1,0 +1,82 @@
+- generic [active] [ref=f2e1]:
+  - generic [ref=f2e3]:
+    - generic: 本 Agent 由作者飞个人学习用途二创开发
+    - generic [ref=f2e7]:
+      - banner [ref=f2e1067]:
+        - button "打开全部能力" [ref=f2e1068]
+        - button "打开快捷状态" [ref=f2e1071]:
+          - strong [ref=f2e1072]: Xiaoda
+          - generic [ref=f2e1073]: 待命
+        - button "查看连接状态：重连中" [ref=f2e1074]:
+          - generic [ref=f2e1075]: ↻
+      - main [ref=f2e17]:
+        - generic [ref=f2e1953]:
+          - heading "🎙 媒体工坊" [level=2] [ref=f2e1954]
+          - generic [ref=f2e1955]:
+            - generic [ref=f2e1960]:
+              - generic [ref=f2e1961]: 语音合成
+              - generic [ref=f2e1964]: 图片生成
+              - generic [ref=f2e1968]: 视频生成
+            - generic [ref=f2e1974]:
+              - generic [ref=f2e1975]:
+                - generic [ref=f2e1977]:
+                  - generic [ref=f2e1978]:
+                    - generic [ref=f2e1979]:
+                      - textbox "输入要合成的文本（≤500 字）…" [ref=f2e1980]
+                      - generic: 输入要合成的文本（≤500 字）…
+                    - generic: 0 / 500
+                  - generic [ref=f2e1981]:
+                    - generic [ref=f2e1984]:
+                      - generic "Xiaoda" [ref=f2e1985]
+                      - img "loading" [ref=f2e1987]
+                    - generic [ref=f2e1996]:
+                      - generic: 情绪风格（自动）
+                      - img "loading" [ref=f2e1997]
+                    - button "🎵 合成" [ref=f2e2004]
+                - generic [ref=f2e2007]:
+                  - heading "朗读设置" [level=4] [ref=f2e2008]
+                  - generic [ref=f2e2009]:
+                    - text: 自动朗读回复
+                    - switch [ref=f2e2010]
+                  - paragraph [ref=f2e2013]: 开启后，聊天页收到回复会自动合成并播放（音色跟随当前 Agent 的 voice_ref）。
+              - generic [ref=f2e2015]:
+                - heading "参考音频管理" [level=4] [ref=f2e2016]
+                - paragraph [ref=f2e2017]: 支持 .mp3 / .wav 格式，≤10MB。音色名仅限字母、数字、下划线、中横线。
+                - generic [ref=f2e2021]:
+                  - generic "Xiaoda" [ref=f2e2022]
+                  - img "loading" [ref=f2e2024]
+                - generic [ref=f2e2031]:
+                  - generic [ref=f2e2032]:
+                    - generic [ref=f2e2033]: Xiaoda
+                    - generic [ref=f2e2034]: xiaoda
+                    - generic [ref=f2e2036]: mediaView.noVoice
+                  - generic [ref=f2e2037]:
+                    - button "📁 选择音频" [ref=f2e2039]
+                    - generic [ref=f2e2044]:
+                      - generic: mediaView.noVoice
+                      - img "loading" [ref=f2e2045]
+                    - generic [ref=f2e2052]: 暂无音色
+          - generic [ref=f2e2055]:
+            - heading "任务队列" [level=3] [ref=f2e2056]
+            - generic [ref=f2e2057]: 暂无任务
+          - generic [ref=f2e2059]:
+            - generic [ref=f2e2060]:
+              - heading "画廊" [level=3] [ref=f2e2061]
+              - generic [ref=f2e2064]:
+                - generic [ref=f2e2065]: 图片
+                - generic [ref=f2e2068]: 视频
+                - generic [ref=f2e2071]: 音频
+            - generic [ref=f2e2075]: 这里还没有长出叶子哦～生成点什么吧
+      - navigation "主要导航" [ref=f2e1076]:
+        - link "对话" [ref=f2e1077]:
+          - /url: "#/"
+        - link "Agent 管理" [ref=f2e1082]:
+          - /url: "#/settings/agents"
+        - link "内在世界" [ref=f2e1088]:
+          - /url: "#/insight"
+        - link "Skills 工具" [ref=f2e1093]:
+          - /url: "#/settings/tools"
+        - link "系统设置" [ref=f2e1098]:
+          - /url: "#/settings/system"
+  - button "Xiaoda的虚空终端" [ref=f2e105]:
+    - generic [ref=f2e106]: ▎>_

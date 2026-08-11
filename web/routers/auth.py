@@ -1,24 +1,24 @@
 from __future__ import annotations
 
-import ipaddress
-import os
-import time
-import json
+import base64
+import contextlib
 import hashlib
 import hmac
-import base64
+import ipaddress
+import json
+import os
 import secrets
-from dataclasses import dataclass
+import time
 from collections import OrderedDict
+from dataclasses import dataclass
 from pathlib import Path
 from threading import Lock
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request, Depends, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from loguru import logger
 
 from web.schemas import Envelope, LoginRequest, LoginResponse
-import contextlib
 
 router = APIRouter(tags=["auth"])
 
@@ -44,6 +44,11 @@ _tokens: OrderedDict[str, float] = OrderedDict()
 _TOKENS_MAX_SIZE = 1000
 _rate_limit: OrderedDict[str, tuple[int, float]] = OrderedDict()
 _webview_sessions: OrderedDict[str, tuple[str, float]] = OrderedDict()
+_mobile_contract = json.loads((Path(__file__).resolve().parents[2] / "config" / "mobile_contract.json").read_text(encoding="utf-8"))
+_webview_cookie_contract = _mobile_contract["webview_session_cookie"]
+WEBVIEW_SESSION_COOKIE_NAME = str(_webview_cookie_contract["name"])
+WEBVIEW_SESSION_COOKIE_MAX_AGE = int(_webview_cookie_contract["max_age_seconds"])
+WEBVIEW_SESSION_COOKIE_SAMESITE = str(_webview_cookie_contract["same_site"])
 _RATE_LIMIT_MAX_SIZE = 1000
 
 _SECRET: str = ""
@@ -92,6 +97,26 @@ def resolve_webview_session(handle: str) -> str | None:
             _webview_sessions.pop(handle, None)
             return None
     return token if _validate_token(token) else None
+
+
+def _refresh_webview_session(handle: str, token: str, lifetime_seconds: int = WEBVIEW_SESSION_COOKIE_MAX_AGE) -> float | None:
+    if not handle:
+        return None
+    expires_at = time.time() + lifetime_seconds
+    with _webview_sessions_lock:
+        if handle not in _webview_sessions:
+            return None
+        _webview_sessions[handle] = (token, expires_at)
+        _webview_sessions.move_to_end(handle)
+    return expires_at
+
+
+def renew_webview_session(handle: str) -> WebViewSession | None:
+    token = resolve_webview_session(handle)
+    if not token:
+        return None
+    expires_at = _refresh_webview_session(handle, token)
+    return WebViewSession(handle, expires_at) if expires_at else None
 
 
 def _get_secret_path() -> Path:
@@ -304,26 +329,37 @@ async def get_current_user(request: Request) -> str:
     """
     auth = request.headers.get("Authorization", "")
     credential = auth[7:] if auth.startswith("Bearer ") else ""
+    webview_handle = ""
     if credential:
-        token = resolve_webview_session(credential) or credential
+        resolved = resolve_webview_session(credential)
+        webview_handle = credential if resolved else ""
+        token = resolved or credential
     else:
-        token = resolve_webview_session(request.cookies.get("xiaoda_session", ""))
+        webview_handle = request.cookies.get(WEBVIEW_SESSION_COOKIE_NAME, "")
+        token = resolve_webview_session(webview_handle)
     if not token:
         raise HTTPException(401, "Missing or invalid Authorization header")
     if not _validate_token(token):
         raise HTTPException(401, "Invalid or expired token")
     # 滑动续期：剩余不到1天时换新
     try:
-        decoded = base64.urlsafe_b64decode(token.encode()).decode()
-        expiry = float(decoded.rsplit(".", 2)[0])
+        expiry = _extract_expiry(token)
         if expiry - time.time() < 86400:  # 不到1天就续
             new_token, new_expiry = _issue_token()
             _revoke_token(token)  # 旧 token 作废
-            request.state.new_token = new_token
-            request.state.new_expiry = new_expiry
+            if webview_handle:
+                token = new_token
+            else:
+                request.state.new_token = new_token
+                request.state.new_expiry = new_expiry
             logger.info("auth.token_renewed old_expiry={} new_expiry={}", int(expiry), int(new_expiry))
     except Exception as e:
         logger.debug("auth.renew_check_failed error={}", str(e))
+    if webview_handle:
+        session_expiry = _refresh_webview_session(webview_handle, token)
+        if session_expiry:
+            request.state.webview_session_handle = webview_handle
+            request.state.webview_session_expiry = session_expiry
     return "webui"
 
 
@@ -354,7 +390,14 @@ async def login(req: LoginRequest, request: Request) -> Any:
 
     if not password:
         if not _is_private_ip(client_ip):
-            raise HTTPException(403, "Public access denied without password. Set WEBUI_PASSWORD in .env")
+            from core.app_exception import ProtocolError
+            raise ProtocolError(
+                "Public access denied without password. Set WEBUI_PASSWORD in .env",
+                code="AUTH_FAILED",
+                stage="auth",
+                retryable=False,
+                http_status=403,
+            )
         token, expiry = _issue_token()
         return Envelope(data=LoginResponse(token=token, expires_at=expiry))
 
@@ -384,14 +427,32 @@ async def create_webview_session(response: Response, request: Request, user_id: 
     token = auth[7:] if auth.startswith("Bearer ") else ""
     if not token:
         raise HTTPException(401, "Bearer token required")
-    session = _issue_webview_session(token)
+    session = _issue_webview_session(token, WEBVIEW_SESSION_COOKIE_MAX_AGE)
     response.set_cookie(
-        "xiaoda_session",
+        WEBVIEW_SESSION_COOKIE_NAME,
         session.handle,
-        max_age=300,
+        max_age=WEBVIEW_SESSION_COOKIE_MAX_AGE,
         httponly=True,
         secure=True,
-        samesite="strict",
+        samesite=WEBVIEW_SESSION_COOKIE_SAMESITE,
+        path="/",
+    )
+    return Envelope(data={"handle": session.handle, "expires_at": session.expires_at})
+
+
+@router.post("/auth/webview-session/renew", response_model=Envelope[dict[str, Any]])
+async def renew_webview_session_endpoint(response: Response, request: Request) -> Any:
+    handle = request.cookies.get(WEBVIEW_SESSION_COOKIE_NAME, "")
+    session = renew_webview_session(handle)
+    if not session:
+        raise HTTPException(401, "Invalid or expired WebView session")
+    response.set_cookie(
+        WEBVIEW_SESSION_COOKIE_NAME,
+        session.handle,
+        max_age=WEBVIEW_SESSION_COOKIE_MAX_AGE,
+        httponly=True,
+        secure=True,
+        samesite=WEBVIEW_SESSION_COOKIE_SAMESITE,
         path="/",
     )
     return Envelope(data={"handle": session.handle, "expires_at": session.expires_at})

@@ -1,9 +1,11 @@
 """Agnes Transport - 适配 Agnes AI API"""
-import os
 import asyncio
+import os
+
 import httpx
-from openai import AsyncOpenAI
+
 from transports.base import ProviderTransport, TransportResponse
+from web.custom_providers import build_openai_client
 
 # agnes API max_tokens 上限 65536，超出返回 500 invalid_request
 # 直接调用 transport.chat() 的路径（绕过 model_router._build_route_kwargs）
@@ -99,10 +101,9 @@ class AgnesTransport(ProviderTransport):
         _key = os.getenv("AGNES_API_KEY", "")
         _url = os.getenv("AGNES_BASE_URL", "https://apihub.agnes-ai.cn/v1")
         if _key:
-            self._client = AsyncOpenAI(
-                api_key=_key,
-                base_url=_url,
-                http_client=_get_agnes_http_client(),
+            self._client = build_openai_client(
+                _url,
+                _key,
                 timeout=AGNES_HTTP_TIMEOUT,
                 max_retries=0,  # 禁用 SDK 内部盲重试，由 model_router 统一控制重试
             )
@@ -117,6 +118,11 @@ class AgnesTransport(ProviderTransport):
     def is_available(self) -> bool:
         """返回 Agnes 客户端是否已初始化。"""
         return self._client is not None
+
+    async def close(self) -> None:
+        if self._client is not None:
+            await self._client.close()
+            self._client = None
 
     async def chat(self, model: str, messages: list[dict],
                    temperature: float = 0.7, max_tokens: int = 4096,

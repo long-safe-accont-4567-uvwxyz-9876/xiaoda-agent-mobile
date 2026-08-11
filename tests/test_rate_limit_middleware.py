@@ -70,6 +70,10 @@ def test_exceed_limit_returns_429():
     body = r.json()
     assert body["detail"] == "Rate limit exceeded"
     assert body["retry_after"] >= 1
+    assert body["code"] == "RATE_LIMITED"
+    assert body["stage"] == "validate"
+    assert body["retryable"] is True
+    assert body["message"] == "Rate limit exceeded"
 
 
 # ── 3. localhost 白名单放行 ──

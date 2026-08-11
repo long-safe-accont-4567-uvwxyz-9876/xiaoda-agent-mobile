@@ -151,7 +151,7 @@ OPTIONAL_KEYS = [
     {
         "key": "EMBED_API_KEY",
         "label": "向量嵌入 API 密钥（选填）",
-        "desc": "远程向量嵌入密钥。默认使用本地内置 BGE CPU 模型，仅当 EMBED_MODE=remote 或需要硅基流动嵌入时才需填写",
+        "desc": "硅基流动向量嵌入密钥。未配置时关闭语义向量检索",
         "url": "https://cloud.siliconflow.cn/i/iM5RmeWc",
         "url_desc": "注册 → API Keys → 复制",
     },
@@ -196,13 +196,6 @@ OPTIONAL_KEYS = [
         "desc": "魔搭 ModelScope 免费模型发现（国内直连）",
         "url": "https://modelscope.cn",
         "url_desc": "注册 → 个人中心 → 访问令牌",
-    },
-    {
-        "key": "OLLAMA_BASE_URL",
-        "label": "Ollama 本地大模型",
-        "desc": "本地部署的 Ollama 服务地址（需带 /v1 后缀），用于接入本地大模型（如 Qwen、Llama 等）。示例：http://localhost:11434/v1。填入后可在聊天和 Agent 配置中切换使用。本地部署无需 API Key，留空即可。",
-        "url": "https://ollama.com",
-        "url_desc": "下载安装 Ollama",
     },
 ]
 

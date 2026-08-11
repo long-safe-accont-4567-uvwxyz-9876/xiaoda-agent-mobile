@@ -1,21 +1,22 @@
-from typing import Any
-import json
 import asyncio
+import json
 import time
 from pathlib import Path
-from openai import AsyncOpenAI
+from typing import Any
 
 from loguru import logger
-from tool_engine.tool_registry import to_openai_tools
+from openai import AsyncOpenAI
+
+from core.message import AgentMessage
+from emotion.tts_engine import TTSEngine
 from tool_engine.tool_executor import ToolExecutor, ToolResult
+from tool_engine.tool_registry import to_openai_tools
 from tool_engine.tool_repair import ToolCallRepair
 from utils.text_utils import has_dsml_tool_calls, parse_dsml_tool_calls, strip_dsml
-from emotion.tts_engine import TTSEngine
-from core.message import AgentMessage
 
 
 def _get_providers() -> list[dict]:
-    from config import DEFAULT_PROVIDER, get_provider_config, MODEL_NAME
+    from config import DEFAULT_PROVIDER, MODEL_NAME, get_provider_config
     cfg = get_provider_config(DEFAULT_PROVIDER)
     return [
         {
@@ -74,10 +75,8 @@ class XiaoliAgent:
                 logger.warning("xiaoli.no_api_key", provider=provider["name"])
                 continue
 
-            client = AsyncOpenAI(
-                api_key=api_key,
-                base_url=provider["base_url"],
-            )
+            from web.custom_providers import build_openai_client
+            client = build_openai_client(provider["base_url"], api_key)
             self._clients.append((provider["name"], client, provider["models"]))
             logger.info("xiaoli.provider_ready", provider=provider["name"], models=len(provider["models"]))
 

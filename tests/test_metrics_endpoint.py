@@ -143,10 +143,10 @@ def test_metrics_contains_process_metrics():
     r = client.get("/metrics")
     assert r.status_code == 200
     body = r.text
-    # process_cpu_seconds_total 子串匹配 process_cpu_seconds
-    assert "process_cpu_seconds" in body, "缺少 process_cpu_seconds 指标"
-    assert "process_resident_memory_bytes" in body, "缺少 process_resident_memory_bytes"
     assert "python_info" in body, "缺少 python_info 指标"
+    if os.name != "nt":
+        assert "process_cpu_seconds" in body, "缺少 process_cpu_seconds 指标"
+        assert "process_resident_memory_bytes" in body, "缺少 process_resident_memory_bytes"
 
 
 # ============================================================

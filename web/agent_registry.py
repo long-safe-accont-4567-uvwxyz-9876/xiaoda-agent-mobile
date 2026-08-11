@@ -8,6 +8,7 @@
 """
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import shutil
@@ -21,6 +22,8 @@ from loguru import logger
 # frozen 模式下使用用户目录（~/.ai-agent/data/config/agents/），避免写入 _MEIPASS 只读目录
 import config as _config
 from config import _FALLBACK_BASE, AGENTS_CONFIG_DIR, DEFAULT_PROVIDER, MEDIA_DIR, get_agent_display_name
+from utils.atomic_write import atomic_json_write, atomic_write
+from web.wallpaper_config import normalize_wallpaper_fields
 
 
 def _resolve_personality_path(pf: str) -> str | None:
@@ -205,6 +208,9 @@ MAIN_AGENT_META = {
     "enabled": True,
     "provider": DEFAULT_PROVIDER,
     "wallpaper": DEFAULT_WALLPAPERS["xiaoda"],
+    "wallpaper_focus": {"x": 0.5, "y": 0.5},
+    "wallpaper_overlay": 0.28,
+    "wallpaper_motion": "auto",
     "voice_ref": None,
     "route_description": "主体，默认对话对象，可委托其他子代理",
 }
@@ -214,7 +220,8 @@ _CONFIG_FIELDS = [
     "name", "display_name", "display_name_en", "provider", "model", "personality_file", "voice_ref",
     "excluded_tools", "base_url", "api_key_env", "capabilities", "route_description",
     "mcp_servers", "max_spawn_depth", "max_turns", "effort", "permission_mode",
-    "memory_scope", "background", "wallpaper",
+    "memory_scope", "background", "wallpaper", "wallpaper_focus",
+    "wallpaper_overlay", "wallpaper_motion",
     "allowed_paths", "forbidden_paths",
 ]
 
@@ -254,8 +261,7 @@ class AgentRegistry:
                     v = Path(pv).name
             data[f] = v
         data["_saved_at"] = time.time()
-        self._file(cfg.name).write_text(
-            json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        atomic_json_write(self._file(cfg.name), data)
 
     # ── 小妲主体配置（excluded_tools / mcp_servers） ──
 
@@ -423,6 +429,9 @@ class AgentRegistry:
             "memory_scope": "shared",
             "background": None,
             "wallpaper": DEFAULT_WALLPAPERS.get(name, ""),
+            "wallpaper_focus": {"x": 0.5, "y": 0.5},
+            "wallpaper_overlay": 0.28,
+            "wallpaper_motion": "auto",
             "allowed_paths": [],
             "forbidden_paths": [],
             "tool_count": tool_count,
@@ -466,9 +475,18 @@ class AgentRegistry:
             MAIN_AGENT_META["display_name_en"] = xiaoda_cfg["display_name_en"]
         try:
             from web.config_service import get_config_service
-            wp = get_config_service().get("ui.main_wallpaper")
-            if wp:
-                main["wallpaper"] = _normalize_wallpaper(wp)
+            config_service = get_config_service()
+            persisted_wallpaper = {
+                "wallpaper": config_service.get("ui.main_wallpaper") or main["wallpaper"],
+                "wallpaper_focus": config_service.get("ui.wallpaper_focus"),
+                "wallpaper_overlay": config_service.get("ui.wallpaper_overlay"),
+                "wallpaper_motion": config_service.get("ui.wallpaper_motion"),
+            }
+            persisted_wallpaper = {k: v for k, v in persisted_wallpaper.items() if v is not None}
+            main.update(normalize_wallpaper_fields(persisted_wallpaper, current=main))
+            main["wallpaper"] = _normalize_wallpaper(main["wallpaper"])
+        except (ValueError, TypeError):
+            logger.warning("registry.wallpaper_config_invalid; using defaults", exc_info=True)
         except Exception:
             logger.debug("registry.wallpaper_error", exc_info=True)
         out = [main]
@@ -526,7 +544,12 @@ class AgentRegistry:
             "permission_mode": cfg.permission_mode,
             "memory_scope": cfg.memory_scope,
             "background": cfg.background,
-            "wallpaper": getattr(cfg, "wallpaper", "") or DEFAULT_WALLPAPERS.get(cfg.name, ""),
+            **normalize_wallpaper_fields({
+                "wallpaper": getattr(cfg, "wallpaper", "") or DEFAULT_WALLPAPERS.get(cfg.name, ""),
+                "wallpaper_focus": getattr(cfg, "wallpaper_focus", {"x": 0.5, "y": 0.5}),
+                "wallpaper_overlay": getattr(cfg, "wallpaper_overlay", 0.28),
+                "wallpaper_motion": getattr(cfg, "wallpaper_motion", "auto"),
+            }),
             "allowed_paths": list(getattr(cfg, "allowed_paths", []) or []),
             "forbidden_paths": list(getattr(cfg, "forbidden_paths", []) or []),
             "tool_count": tool_count,
@@ -558,6 +581,9 @@ class AgentRegistry:
             raise ValueError(f"Agent {name} 已存在")
         personality_text = data.pop("personality_text", "")
         kwargs = {f: data[f] for f in _CONFIG_FIELDS if f in data and data[f] is not None}
+        wallpaper_keys = {"wallpaper", "wallpaper_focus", "wallpaper_overlay", "wallpaper_motion"}
+        if wallpaper_keys.intersection(data):
+            kwargs.update(normalize_wallpaper_fields(data))
         kwargs["name"] = name
         kwargs["excluded_tools"] = set(kwargs.get("excluded_tools") or [])
         if personality_text:
@@ -577,9 +603,26 @@ class AgentRegistry:
         """更新 Agent 配置，必要时热重载模型客户端并持久化。"""
         # 主体小妲特殊处理：不在 dispatcher 中，只更新壁纸/人格/voice_ref/display_name
         if name == "xiaoda":
-            if data.get("wallpaper"):
+            wallpaper_keys = {"wallpaper", "wallpaper_focus", "wallpaper_overlay", "wallpaper_motion"}
+            if wallpaper_keys.intersection(data):
                 from web.config_service import get_config_service
-                get_config_service().set("ui.main_wallpaper", _normalize_wallpaper(data["wallpaper"]))
+                config_service = get_config_service()
+                current = {
+                    "wallpaper": config_service.get("ui.main_wallpaper") or MAIN_AGENT_META["wallpaper"],
+                    "wallpaper_focus": config_service.get("ui.wallpaper_focus") or MAIN_AGENT_META["wallpaper_focus"],
+                    "wallpaper_overlay": config_service.get("ui.wallpaper_overlay"),
+                    "wallpaper_motion": config_service.get("ui.wallpaper_motion"),
+                }
+                current = {k: v for k, v in current.items() if v is not None}
+                normalized = normalize_wallpaper_fields(data, current=current)
+                normalized["wallpaper"] = _normalize_wallpaper(normalized["wallpaper"])
+                config_service.set_many({
+                    "ui.main_wallpaper": normalized["wallpaper"],
+                    "ui.wallpaper_focus": normalized["wallpaper_focus"],
+                    "ui.wallpaper_overlay": normalized["wallpaper_overlay"],
+                    "ui.wallpaper_motion": normalized["wallpaper_motion"],
+                })
+                MAIN_AGENT_META.update(normalized)
             personality_text = data.pop("personality_text", None)
             # P0 修复（2026-08-04）：空字符串保护。
             # 前端 save() 总传 personality_text（即使为空），原 `is not None` 判断
@@ -616,6 +659,9 @@ class AgentRegistry:
                 MAIN_AGENT_META["display_name_en"] = data["display_name_en"]
             return self.get("xiaoda")
         agent = self._require(name)
+        config_snapshot = copy.deepcopy(vars(agent.config))
+        config_path = self._file(name)
+        file_snapshot = config_path.read_bytes() if config_path.exists() else None
         personality_text = data.pop("personality_text", None)
         # 记录旧值，用于判断是否需要热重载客户端
         old_provider = agent.config.provider
@@ -646,6 +692,10 @@ class AgentRegistry:
                 data.setdefault("api_key_env", api_key_env)
             except ValueError:
                 logger.debug("unknown provider={}, skip auto-fill base_url/api_key_env", new_provider, exc_info=True)
+        wallpaper_keys = {"wallpaper", "wallpaper_focus", "wallpaper_overlay", "wallpaper_motion"}
+        if wallpaper_keys.intersection(data):
+            current_wallpaper = {field: getattr(agent.config, field, None) for field in wallpaper_keys}
+            data.update(normalize_wallpaper_fields(data, current=current_wallpaper))
         self._apply_fields(agent.config, data)
         # provider 或 model 变更后，尝试热重载客户端
         provider_changed = new_provider is not None and new_provider != old_provider
@@ -668,7 +718,16 @@ class AgentRegistry:
             pf.write_text(personality_text, encoding="utf-8-sig")
             agent.config.personality_file = str(pf)
             await agent.init()  # 重载人格
-        self._save_config(agent.config)
+        try:
+            self._save_config(agent.config)
+        except Exception:
+            vars(agent.config).clear()
+            vars(agent.config).update(config_snapshot)
+            if file_snapshot is None:
+                config_path.unlink(missing_ok=True)
+            else:
+                atomic_write(config_path, file_snapshot)
+            raise
         return self._serialize(agent.config, enabled=name not in self._disabled)
 
     async def delete(self, name: str) -> None:
@@ -676,7 +735,7 @@ class AgentRegistry:
         if name in BUILTIN_AGENTS or name == "xiaoda":
             raise ValueError("内置 Agent 不可删除，只能禁用")
         self._require(name)
-        self.core.dispatcher.unregister(name)
+        await self.core.dispatcher.unregister(name)
         self._file(name).unlink(missing_ok=True)
         self._personality_file(name).unlink(missing_ok=True)
 

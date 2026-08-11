@@ -1,0 +1,53 @@
+- generic [active] [ref=f2e1]:
+  - generic [ref=f2e3]:
+    - generic: 本 Agent 由作者飞个人学习用途二创开发
+    - generic [ref=f2e7]:
+      - banner [ref=f2e1067]:
+        - button "打开全部能力" [ref=f2e1068]
+        - button "打开快捷状态" [ref=f2e1071]:
+          - strong [ref=f2e1072]: Xiaoda
+          - generic [ref=f2e1073]: 待命
+        - button "查看连接状态：重连中" [ref=f2e1074]:
+          - generic [ref=f2e1075]: ↻
+      - main [ref=f2e17]:
+        - generic [ref=f2e1357]:
+          - heading "📊 仪表盘" [level=2] [ref=f2e1358]
+          - generic [ref=f2e1359]:
+            - generic [ref=f2e1361]:
+              - generic [ref=f2e1362]: "0"
+              - generic [ref=f2e1363]: 今日对话轮数
+            - generic [ref=f2e1365]:
+              - generic [ref=f2e1366]: $0.0000
+              - generic [ref=f2e1367]: 今日成本
+            - generic [ref=f2e1369]:
+              - generic [ref=f2e1370]: "0"
+              - generic [ref=f2e1371]: 今日工具调用
+            - generic [ref=f2e1373]:
+              - generic [ref=f2e1374]: "0"
+              - generic [ref=f2e1375]: 今日新增记忆
+          - generic [ref=f2e1376]:
+            - heading "7 天成本" [level=4] [ref=f2e1378]
+            - heading "工具调用 Top10" [level=4] [ref=f2e1381]
+          - generic [ref=f2e1383]:
+            - generic [ref=f2e1384]:
+              - generic [ref=f2e1385]:
+                - heading "系统 监控" [level=4] [ref=f2e1386]
+                - button "开启监控" [ref=f2e1387]
+              - generic [ref=f2e1389]: 系统监控已关闭，点击"开启监控"查看系统资源使用情况
+            - generic [ref=f2e1390]:
+              - heading "最近审计" [level=4] [ref=f2e1391]
+              - generic [ref=f2e1392]: 暂无
+      - navigation "主要导航" [ref=f2e1076]:
+        - link "对话" [ref=f2e1077]:
+          - /url: "#/"
+        - link "Agent 管理" [ref=f2e1082]:
+          - /url: "#/settings/agents"
+          - generic [ref=f2e1087]: 当前
+        - link "内在世界" [ref=f2e1088]:
+          - /url: "#/insight"
+        - link "Skills 工具" [ref=f2e1093]:
+          - /url: "#/settings/tools"
+        - link "系统设置" [ref=f2e1098]:
+          - /url: "#/settings/system"
+  - button "Xiaoda的虚空终端" [ref=f2e105]:
+    - generic [ref=f2e106]: ▎>_

@@ -21,6 +21,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, Query, Request
 from loguru import logger
 
+from core.app_exception import ProtocolError
 from web.schemas import Envelope
 from web.routers.auth import get_current_user
 from ilink_client import ILinkClient
@@ -101,9 +102,12 @@ async def generate_qrcode(request: Request) -> Any:
                 "wechat.qrcode.empty_response has_id={} has_url={}",
                 bool(qrcode_id), bool(qrcode_url),
             )
-            return Envelope(
-                ok=False,
-                error={"code": "QRCODE_FAILED", "message": "上游未返回有效二维码，请稍后重试"},
+            raise ProtocolError(
+                "上游未返回有效二维码，请稍后重试",
+                code="INVALID_RESPONSE",
+                stage="discover",
+                retryable=True,
+                http_status=502,
             )
         # 存储在 app.state 中，供调试或后续逻辑参考
         request.app.state.wechat_qrcode_id = qrcode_id
@@ -118,15 +122,21 @@ async def generate_qrcode(request: Request) -> Any:
             "qrcode_img": qrcode_img,
         })
     except Exception as e:
+        if isinstance(e, ProtocolError):
+            raise
         logger.error(
             "wechat.qrcode.generate_failed error={} type={}",
             str(e)[:200], type(e).__name__,
             exc_info=True,
         )
-        return Envelope(
-            ok=False,
-            error={"code": "QRCODE_FAILED", "message": f"生成二维码失败: {e}"},
-        )
+        raise ProtocolError(
+            "生成二维码失败",
+            code="CONNECTION_FAILED",
+            stage="connect",
+            retryable=True,
+            http_status=502,
+            cause=e,
+        ) from e
 
 
 @router.get("/wechat/qrcode-status", response_model=Envelope[dict])
@@ -148,10 +158,14 @@ async def get_qrcode_status(
             qrcode_id[:32], str(e)[:200], type(e).__name__,
             exc_info=True,
         )
-        return Envelope(
-            ok=False,
-            error={"code": "STATUS_FAILED", "message": f"查询扫码状态失败: {e}"},
-        )
+        raise ProtocolError(
+            "查询扫码状态失败",
+            code="CONNECTION_FAILED",
+            stage="connect",
+            retryable=True,
+            http_status=502,
+            cause=e,
+        ) from e
 
     st = status_result.get("status", "wait")
     logger.info("wechat.qrcode.status id={} status={}", qrcode_id[:32], st)
@@ -167,9 +181,12 @@ async def get_qrcode_status(
                 "wechat.qrcode.confirmed_incomplete has_token={} has_user={}",
                 bool(bot_token), bool(ilink_user_id),
             )
-            return Envelope(
-                ok=False,
-                error={"code": "INVALID_CREDENTIALS", "message": "登录返回的凭证不完整，请重新扫码"},
+            raise ProtocolError(
+                "登录返回的凭证不完整，请重新扫码",
+                code="CREDENTIAL_CORRUPT",
+                stage="auth",
+                retryable=False,
+                http_status=401,
             )
         # 仅接受 HTTPS baseurl，非 HTTPS 用官方默认域名
         if baseurl and not baseurl.lower().startswith("https://"):
@@ -186,10 +203,14 @@ async def get_qrcode_status(
                 "wechat.qrcode.save_credentials_failed error={}",
                 str(e)[:200], exc_info=True,
             )
-            return Envelope(
-                ok=False,
-                error={"code": "SAVE_FAILED", "message": f"凭证保存失败: {e}"},
-            )
+            raise ProtocolError(
+                "凭证保存失败",
+                code="CREDENTIAL_SAVE_FAILED",
+                stage="probe",
+                retryable=True,
+                http_status=500,
+                cause=e,
+            ) from e
         data: dict[str, Any] = {"status": st}
         if bot_token:
             data["bot_token"] = bot_token
@@ -217,23 +238,33 @@ async def test_connection(request: Request) -> Any:
             "wechat.test.load_credentials_failed error={}",
             str(e)[:200], exc_info=True,
         )
-        return Envelope(
-            ok=False,
-            error={"code": "LOAD_FAILED", "message": f"加载凭证失败: {e}"},
-        )
+        raise ProtocolError(
+            "加载凭证失败",
+            code="CREDENTIAL_CORRUPT",
+            stage="auth",
+            retryable=False,
+            http_status=500,
+            cause=e,
+        ) from e
 
     if not creds:
-        return Envelope(
-            ok=False,
-            error={"code": "NO_CREDENTIALS", "message": "未找到微信凭证，请先扫码登录"},
+        raise ProtocolError(
+            "未找到微信凭证，请先扫码登录",
+            code="AUTH_FAILED",
+            stage="auth",
+            retryable=False,
+            http_status=401,
         )
 
     bot_token = creds.get("bot_token", "")
     ilink_user_id = creds.get("ilink_user_id", "")
     if not bot_token or not ilink_user_id:
-        return Envelope(
-            ok=False,
-            error={"code": "INVALID_CREDENTIALS", "message": "凭证不完整（缺少 bot_token 或 ilink_user_id）"},
+        raise ProtocolError(
+            "凭证不完整（缺少 bot_token 或 ilink_user_id）",
+            code="CREDENTIAL_CORRUPT",
+            stage="auth",
+            retryable=False,
+            http_status=401,
         )
 
     # 用凭证中的 baseurl 初始化 ILinkClient（无 baseurl 或非 HTTPS 时走默认）
@@ -300,17 +331,24 @@ async def start_bot(request: Request) -> Any:
                 "wechat.start.build_adapter_failed error={}",
                 str(e)[:200], exc_info=True,
             )
-            return Envelope(
-                ok=False,
-                error={"code": "INIT_FAILED", "message": f"适配器初始化失败: {e}"},
-            )
+            raise ProtocolError(
+                "适配器初始化失败",
+                code="CONNECTION_FAILED",
+                stage="connect",
+                retryable=True,
+                http_status=500,
+                cause=e,
+            ) from e
 
         # 预检凭证是否存在（start() 内部也会加载，但提前给出明确错误更友好）
         creds = load_credentials()
         if not creds:
-            return Envelope(
-                ok=False,
-                error={"code": "NO_CREDENTIALS", "message": "未找到微信凭证，请先扫码登录"},
+            raise ProtocolError(
+                "未找到微信凭证，请先扫码登录",
+                code="AUTH_FAILED",
+                stage="auth",
+                retryable=False,
+                http_status=401,
             )
 
         try:
@@ -323,10 +361,14 @@ async def start_bot(request: Request) -> Any:
                 "wechat.start.failed error={} type={}",
                 str(e)[:200], type(e).__name__, exc_info=True,
             )
-            return Envelope(
-                ok=False,
-                error={"code": "START_FAILED", "message": f"启动失败: {e}"},
-            )
+            raise ProtocolError(
+                "启动微信消息轮询失败",
+                code="CONNECTION_FAILED",
+                stage="connect",
+                retryable=True,
+                http_status=502,
+                cause=e,
+            ) from e
 
 
 @router.post("/wechat/stop", response_model=Envelope[dict])

@@ -54,11 +54,10 @@ def test_dpapi_available_uses_dpapi():
          patch.object(cv, "win32crypt") as mock_win32crypt:
         # 模拟 CryptProtectData 返回加密后的 bytes
         mock_win32crypt.CryptProtectData.return_value = b"dpapi-encrypted-blob"
-        # 模拟 CryptUnprotectData 返回 (description, data, entropy)
+        # 模拟 pywin32 CryptUnprotectData 的真实二元组返回值
         mock_win32crypt.CryptUnprotectData.return_value = (
             None,
             plaintext.encode("utf-8"),
-            None,
         )
 
         # 加密：应走 DPAPI 路径
@@ -79,6 +78,19 @@ def test_dpapi_available_uses_dpapi():
         decrypted = decrypt(encrypted)
         assert decrypted == plaintext
         mock_win32crypt.CryptUnprotectData.assert_called_once()
+
+
+def test_dpapi_decrypt_accepts_legacy_three_item_result():
+    plaintext = "sk-test-dpapi-legacy-result"
+
+    with patch.object(cv, "win32crypt") as mock_win32crypt:
+        mock_win32crypt.CryptUnprotectData.return_value = (
+            None,
+            plaintext.encode("utf-8"),
+            None,
+        )
+
+        assert cv._dpapi_decrypt(b"ciphertext") == plaintext
 
 
 def test_dpapi_unavailable_falls_back():
@@ -150,13 +162,10 @@ def test_linux_unchanged():
     - is_encrypted() 正确识别
     - 不调用 win32crypt
     """
-    # 确认当前是 Linux 环境
-    assert sys.platform != "win32", "此测试必须在非 Windows 环境运行"
-
     plaintext = "sk-linux-unchanged-secret"
 
-    # 不 patch 任何东西，使用真实 Linux 行为
-    encrypted = encrypt(plaintext)
+    with patch.object(cv.sys, "platform", "linux"):
+        encrypted = encrypt(plaintext)
     assert encrypted.startswith("enc:v1:"), \
         f"Linux 上应走 enc:v1: 路径，实际: {encrypted[:30]}"
     assert not encrypted.startswith("enc:v2:dpapi:")
@@ -184,7 +193,8 @@ def test_dpapi_decrypt_failure_falls_back():
     plaintext = "sk-test-dpapi-decrypt-fallback"
 
     # 1. 使用真实 Linux 环境加密得到 v1 密文
-    v1_encrypted = encrypt(plaintext)
+    with patch.object(cv.sys, "platform", "linux"):
+        v1_encrypted = encrypt(plaintext)
     assert v1_encrypted.startswith("enc:v1:")
     v1_payload = v1_encrypted[len("enc:v1:"):]
 
@@ -265,7 +275,8 @@ def test_v1_value_still_decrypts_on_windows():
     plaintext = "sk-test-v1-backward-compat"
 
     # 1. 在 Linux 环境下加密为 v1
-    v1_encrypted = encrypt(plaintext)
+    with patch.object(cv.sys, "platform", "linux"):
+        v1_encrypted = encrypt(plaintext)
     assert v1_encrypted.startswith("enc:v1:")
 
     # 2. 切换到 Windows + DPAPI 可用环境

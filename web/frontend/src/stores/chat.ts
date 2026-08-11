@@ -32,7 +32,15 @@ export interface Message {
   imageUrl?: string  // 用户上传的图片 URL（用于气泡内显示预览）
 }
 
+export interface ChatNotification {
+  id: string
+  content: string
+  timestamp: number
+  read: boolean
+}
+
 const MAX_MESSAGES = 1000
+const MAX_NOTIFICATIONS = 100
 
 function pushMessage(messages: Ref<Message[]>, msg: Message) {
   messages.value.push(msg)
@@ -43,6 +51,7 @@ function pushMessage(messages: Ref<Message[]>, msg: Message) {
 
 export const useChatStore = defineStore('chat', () => {
   const messages = ref<Message[]>([])
+  const notifications = ref<ChatNotification[]>([])
   const currentAgent = ref('xiaoda')
   const sessionId = ref('')
   const isProcessing = ref(false)
@@ -56,6 +65,22 @@ export const useChatStore = defineStore('chat', () => {
   const greetingPing = ref(0)  // 问候到达脉冲（GrassParticles 蒲公英雨）
 
   const pendingTimers: ReturnType<typeof setTimeout>[] = []
+
+  function addNotification(content: string) {
+    notifications.value.push({
+      id: `notification-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      content,
+      timestamp: Date.now(),
+      read: false,
+    })
+    if (notifications.value.length > MAX_NOTIFICATIONS) {
+      notifications.value = notifications.value.slice(-MAX_NOTIFICATIONS)
+    }
+  }
+
+  function markNotificationsRead() {
+    notifications.value.forEach(notification => { notification.read = true })
+  }
 
   // 初始化时主动同步 WS 状态（避免竞态：WS 在 chat store 初始化前已连接，ws_connected 事件被错过）
   if (ws.connected) {
@@ -84,6 +109,7 @@ export const useChatStore = defineStore('chat', () => {
       currentStage.value = ''
       statusText.value = ''
       pendingMsgId.value = ''
+      addNotification('连接中断，本次生成已停止')
     }
   }
 
@@ -186,12 +212,14 @@ export const useChatStore = defineStore('chat', () => {
     isProcessing.value = false
     currentStage.value = ''
     pendingMsgId.value = ''
+    const content = e.code === 'ABORTED' ? t('chat.aborted') : t('chat.errorOccurred') + e.message
     pushMessage(messages, {
       id: `err-${Date.now()}`,
       role: 'system',
-      content: e.code === 'ABORTED' ? t('chat.aborted') : t('chat.errorOccurred') + e.message,
+      content,
       timestamp: Date.now(),
     })
+    if (e.code !== 'ABORTED') addNotification(content)
   }
 
   const onAgentChanged = (e: WsEvent) => {
@@ -345,9 +373,9 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   return {
-    messages, currentAgent, sessionId, isProcessing, currentStage, statusText,
+    messages, notifications, currentAgent, sessionId, isProcessing, currentStage, statusText,
     wsConnected, wsReconnecting, lastEmotion, greetingPing,
     sendMessage, abort, setAgent, newSession, loadSession,
-    deleteMessage, retryLast, clearMessages, cleanup,
+    deleteMessage, retryLast, clearMessages, addNotification, markNotificationsRead, cleanup,
   }
 })

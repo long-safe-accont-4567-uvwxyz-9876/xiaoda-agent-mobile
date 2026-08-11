@@ -142,8 +142,10 @@
 
 ```json
 { "ok": true, "data": { ... } }
-{ "ok": false, "error": { "code": "TOOL_NOT_FOUND", "message": "..." } }
+{ "ok": false, "data": null, "code": "TOOL_NOT_FOUND", "message": "...", "detail": "...", "stage": "validate", "retryable": false, "trace_id": "...", "error": { "code": "TOOL_NOT_FOUND", "message": "..." } }
 ```
+
+错误响应以顶层 `code/message/stage/retryable/trace_id` 为当前契约；迁移期保留 `detail`、嵌套 `error` 和历史 `error_code/details`，新客户端不得只依赖兼容字段。
 
 鉴权：除 `/auth/login` 与静态文件外，所有接口要求 `Authorization: Bearer <token>`（§10）。
 

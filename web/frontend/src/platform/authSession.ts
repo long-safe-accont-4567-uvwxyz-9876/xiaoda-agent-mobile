@@ -27,6 +27,24 @@ export async function restoreSession() {
   return nativeSession
 }
 
+let nativeSessionRenewal: Promise<{ handle: string; expiresAt: number } | null> | null = null
+
+export async function ensureNativeSession() {
+  if (!isAndroidWebView()) return null
+  if (!nativeSessionRenewal) {
+    nativeSessionRenewal = getNativeBridge().restoreSession()
+      .then(session => nativeSession = session)
+      .finally(() => { nativeSessionRenewal = null })
+  }
+  return nativeSessionRenewal
+}
+
+export function refreshNativeSessionExpiry(expiresAt: number) {
+  if (isAndroidWebView() && nativeSession && Number.isFinite(expiresAt) && expiresAt > 0) {
+    nativeSession = { ...nativeSession, expiresAt }
+  }
+}
+
 export async function clearSession() {
   nativeSession = null
   if (isAndroidWebView()) await getNativeBridge().clearSession()

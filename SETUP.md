@@ -90,11 +90,10 @@ Embedding 用于情景记忆的语义检索，让 AI 能记住并回忆之前的
 4. 复制 Key，填入 `.env`：
    ```
    EMBED_API_KEY=你复制的Key
-   EMBED_BASE_URL=https://api.siliconflow.cn/v1
-   EMBED_MODEL=BAAI/bge-large-zh-v1.5
+   EMBED_MODEL=BAAI/bge-m3
    ```
 
-> **替代方案**：任何 OpenAI 兼容的 Embedding API 都可以使用，修改 `EMBED_BASE_URL` 和 `EMBED_MODEL` 即可。
+> 向量检索固定使用 SiliconFlow API。未配置密钥时，系统保留文本记忆并关闭语义向量检索，不会加载或回退到本地模型。
 
 ### 可选：其他 API Key
 

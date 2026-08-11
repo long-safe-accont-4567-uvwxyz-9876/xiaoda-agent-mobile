@@ -22,15 +22,17 @@ LLM 按需搜索并加载完整工具定义, 避免上下文膨胀。
 - 优雅降级: embed 失败不影响 BM25 检索
 - 懒初始化: VectorIndex 首次 search 时才初始化 embed_client
 """
+import asyncio
 import math
 import os
 import re
-import asyncio
 import threading
 from collections import Counter
 from dataclasses import dataclass, field
-from loguru import logger
 from typing import Any
+
+from loguru import logger
+from openai import AsyncOpenAI
 
 
 @dataclass
@@ -126,7 +128,7 @@ class VectorIndex:
     """向量检索索引 (语义匹配, 同义词/近义概念强项)
 
     论文支撑: AnyTool (arXiv:2402.04253) 大规模 API 分层检索
-    实现: 用 OpenAI 兼容 embedding API 生成向量, 余弦相似度搜索
+    实现: 用硅基流动 embedding API 生成向量, 余弦相似度搜索
 
     优雅降级:
       - 无 embed_client → 返回空 (BM25 兜底)
@@ -137,7 +139,7 @@ class VectorIndex:
     def __init__(
         self,
         embed_client: Any = None,
-        embed_model: str = "text-embedding-3-small",
+        embed_model: str = "BAAI/bge-m3",
     ) -> None:
         self._embed_client = embed_client
         self._embed_model = embed_model
@@ -325,15 +327,20 @@ class ToolSearchEngine:
 
     def enable_vector_search(
         self,
-        embed_client: Any,
-        embed_model: str = "text-embedding-3-small",
+        api_key: str,
+        embed_model: str = "BAAI/bge-m3",
     ) -> None:
         """启用向量检索 (混合模式).
 
         Args:
-            embed_client: OpenAI 兼容的 AsyncOpenAI 客户端
+            api_key: 硅基流动 API 密钥
             embed_model: embedding 模型名
         """
+        embed_client = AsyncOpenAI(
+            api_key=api_key,
+            base_url="https://api.siliconflow.cn/v1",
+            max_retries=0,
+        )
         self._vector_index = VectorIndex(embed_client, embed_model)
         # 把已注册的 defer_loading 工具加到向量索引
         for tool in self._index._tool_defs:

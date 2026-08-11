@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import asyncio
 import os
+import platform as _platform
+import re as _re
 import shutil
+import socket as _socket
+import time as _time
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
-
-import asyncio
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -14,7 +17,6 @@ from loguru import logger
 
 from web.routers.auth import get_current_user
 from web.schemas import Envelope
-import contextlib
 
 # test-key 速率限制：每 IP 最多 10 次/分钟
 _test_key_timestamps: list[float] = []
@@ -97,6 +99,7 @@ def _is_profile_done() -> bool:
     """
     try:
         import re as _re_local
+
         from config import WORKSPACE_DIR
         user_md = WORKSPACE_DIR / "USER.md"
         if not user_md.exists():
@@ -226,7 +229,7 @@ async def get_keys() -> Any:
     import sys
     logger.info("setup.keys.called frozen={} exe={}", getattr(sys, 'frozen', False), getattr(sys, 'executable', 'N/A'))
     try:
-        from setup_wizard import REQUIRED_KEYS, OPTIONAL_KEYS, _load_env_values
+        from setup_wizard import OPTIONAL_KEYS, REQUIRED_KEYS, _load_env_values
         logger.info("setup.keys.import_ok")
     except (OSError, KeyError, ValueError, RuntimeError, TypeError) as e:
         logger.error("setup.keys.import_failed error={}", str(e))
@@ -517,37 +520,6 @@ async def _test_github(key_value: str) -> tuple[bool, str]:
         return False, f"GitHub API 请求失败: {e}"
 
 
-async def _test_ollama(base_url: str) -> tuple[bool, str]:
-    """测试 Ollama 服务连通性。"""
-    # URL 规范化：Ollama OpenAI 兼容端点需以 /v1 结尾
-    import urllib.parse as _urlparse
-    _parsed = _urlparse.urlparse(base_url)
-    _path = _parsed.path.rstrip("/")
-    if not _path.endswith("/v1"):
-        base_url = f"{base_url.rstrip('/')}/v1"
-    # SSRF 防护：校验 URL 不指向内网/元数据服务。
-    # Ollama 是本地/容器内部署，允许 localhost / 127.0.0.1 / host.docker.internal
-    from security.ssrf_guard import validate_url, is_local_host
-    if not is_local_host(base_url):
-        allowed, reason = validate_url(base_url)
-        if not allowed:
-            return False, f"URL 安全检查失败: {reason}"
-    try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            resp = await client.get(f"{base_url.rstrip('/')}/models")
-            if resp.status_code == 200:
-                data = resp.json()
-                models = data.get("data", [])
-                return True, f"Ollama 可用，发现 {len(models)} 个模型"
-            return False, f"Ollama 返回 HTTP {resp.status_code}，请确认 Ollama 已启动且 URL 正确（需 /v1 后缀）"
-    except httpx.ConnectError:
-        return False, f"无法连接到 Ollama 服务（{base_url}），请确认 Ollama 已启动"
-    except httpx.TimeoutException:
-        return False, "Ollama 连接超时"
-    except Exception as e:
-        return False, f"Ollama 请求失败: {e}"
-
-
 async def test_single_key(key_name: str, key_value: str, extra: dict | None = None) -> tuple[bool, str]:
     """根据 key_name 调用对应的测试函数，返回 (success, message)。"""
     extra = extra or {}
@@ -594,9 +566,6 @@ async def test_single_key(key_name: str, key_value: str, extra: dict | None = No
     if key_name == "GITHUB_PERSONAL_ACCESS_TOKEN":
         return await _test_github(key_value)
 
-    if key_name == "OLLAMA_BASE_URL":
-        return await _test_ollama(key_value)
-
     # 不需要调用外部 API 的配置项，简单校验即可
     _NO_API_TEST_KEYS = {"WEBUI_PASSWORD"}
     if key_name in _NO_API_TEST_KEYS:
@@ -609,20 +578,33 @@ async def test_single_key(key_name: str, key_value: str, extra: dict | None = No
 async def test_key(body: dict, request: Request) -> Any:
     """测试 API Key 是否有效。"""
     import time
-    client_ip = request.client.host if request.client else "unknown"
     now = time.monotonic()
     async with _test_key_lock:
         recent = [t for t in _test_key_timestamps if now - t < _TEST_KEY_RATE_WINDOW]
         _test_key_timestamps[:] = recent
         if len(recent) >= _TEST_KEY_RATE_LIMIT:
-            return Envelope(ok=False, error={"code": "RATE_LIMITED", "message": "测试频率过高，请稍后再试"})
+            from core.app_exception import ProtocolError
+            raise ProtocolError(
+                "测试频率过高，请稍后再试",
+                code="RATE_LIMITED",
+                stage="validate",
+                retryable=True,
+                http_status=429,
+            )
         _test_key_timestamps.append(now)
 
     key_name = body.get("key_name", "")
     key_value = body.get("key_value", "")
 
     if not key_name or not key_value:
-        return Envelope(ok=False, error={"code": "INVALID_BODY", "message": "需要提供 key_name 和 key_value"})
+        from core.app_exception import ProtocolError
+        raise ProtocolError(
+            "需要提供 key_name 和 key_value",
+            code="INVALID_REQUEST",
+            stage="validate",
+            retryable=False,
+            http_status=400,
+        )
 
     extra = body.get("extra", {})
     success, message = await test_single_key(key_name, key_value, extra)
@@ -635,20 +617,29 @@ async def save_keys(body: dict) -> Any:
     """将提供的 Key-Value 写入 .env 文件。"""
     try:
         from setup_wizard import (
-            ENV_PATH, ENV_EXAMPLE_PATH, REQUIRED_KEYS,
-            _parse_env_lines, _write_env, _load_env_values,
+            ENV_EXAMPLE_PATH,
+            ENV_PATH,
+            REQUIRED_KEYS,
+            _load_env_values,
+            _parse_env_lines,
+            _write_env,
         )
 
         updates = body.get("keys")
         if not updates or not isinstance(updates, dict):
-            return Envelope(ok=False, error={"code": "INVALID_BODY", "message": "需要提供 keys 字段（dict）"})
+            from core.app_exception import ProtocolError
+            raise ProtocolError(
+                "需要提供 keys 字段（dict）",
+                code="INVALID_REQUEST",
+                stage="validate",
+                retryable=False,
+                http_status=400,
+            )
 
         # 当 test_required=true 时，对必填 Key 逐一测试
         test_required = body.get("test_required", False)
         if test_required:
-            test_error = await _test_required_keys(updates, REQUIRED_KEYS)
-            if test_error is not None:
-                return test_error
+            await _test_required_keys(updates, REQUIRED_KEYS)
 
         # 捕获 QQ 凭证旧值，用于判断保存后是否需要强制重启 QQ Bot
         _qq_keys = ("QQBOT_APP_ID", "QQBOT_APP_SECRET", "ENABLE_QQ_BOT")
@@ -656,12 +647,11 @@ async def save_keys(body: dict) -> Any:
 
         # 写入 .env 文件
         _write_env_file(updates, ENV_PATH, ENV_EXAMPLE_PATH, _parse_env_lines, _load_env_values, _write_env)
-        _auto_register_providers(updates)
+        await _auto_register_providers(updates)
         logger.info("setup.keys_saved count={}", len(updates))
 
-        # 重新加载环境变量 + 清除缓存 + 重置凭证池
+        # 重新加载环境变量 + 清除缓存
         await _reload_env_and_cache(updates, ENV_PATH)
-        _reset_credential_pool(updates)
 
         # 更新 config 模块变量 + 刷新客户端
         _update_config_and_refresh_clients(updates)
@@ -683,13 +673,22 @@ async def save_keys(body: dict) -> Any:
 
         return Envelope(data={"saved": list(updates.keys()), "need_restart": False})
     except Exception as e:
+        from core.app_exception import ProtocolError
+        if isinstance(e, ProtocolError):
+            raise
         import traceback
         logger.error("setup.keys_save_failed error={} traceback={}", str(e), traceback.format_exc())
-        return Envelope(ok=False, error={"code": "SAVE_FAILED", "message": f"保存失败: {str(e)}"})
+        raise ProtocolError(
+            "保存配置失败",
+            code="CONFIG_SAVE_FAILED",
+            stage="probe",
+            retryable=True,
+            http_status=500,
+            cause=e,
+        ) from e
 
 
-async def _test_required_keys(updates: Any, REQUIRED_KEYS: Any) -> Envelope | None:
-    """对必填 Key 逐一测试。返回错误 Envelope 或 None（全部通过）。"""
+async def _test_required_keys(updates: Any, REQUIRED_KEYS: Any) -> None:
     failed: list[dict[str, str]] = []
     required_key_names = [item["key"] for item in REQUIRED_KEYS]
     for rk in required_key_names:
@@ -716,11 +715,15 @@ async def _test_required_keys(updates: Any, REQUIRED_KEYS: Any) -> Envelope | No
         else:
             deduped_failed.append(f)
     if deduped_failed:
-        return Envelope(ok=False, error={
-            "code": "KEY_TEST_FAILED", "message": "必填 Key 验证失败，未保存",
-            "failed_keys": deduped_failed,
-        })
-    return None
+        from core.app_exception import ProtocolError
+        raise ProtocolError(
+            "必填 Key 验证失败，未保存",
+            code="AUTH_FAILED",
+            stage="auth",
+            retryable=False,
+            http_status=400,
+            details={"failed_keys": deduped_failed},
+        )
 
 
 def _write_env_file(updates: Any, ENV_PATH: Any, ENV_EXAMPLE_PATH: Any, _parse_env_lines: Any, _load_env_values: Any, _write_env: Any) -> None:
@@ -756,6 +759,7 @@ def _write_env_file(updates: Any, ENV_PATH: Any, ENV_EXAMPLE_PATH: Any, _parse_e
 async def _reload_env_and_cache(updates: Any, ENV_PATH: Any) -> None:
     """重新加载环境变量、清除模型发现缓存。"""
     import os
+
     from dotenv import load_dotenv
     load_dotenv(ENV_PATH, override=True)
     # 兜底：直接写入 os.environ
@@ -775,7 +779,7 @@ async def _reload_env_and_cache(updates: Any, ENV_PATH: Any) -> None:
 def _reset_credential_pool(updates: Any) -> None:
     """重置凭证池中所有 DEAD 凭证，并替换为新 Key。"""
     try:
-        from utils.credential_pool import get_credential_pool, Credential
+        from utils.credential_pool import Credential, get_credential_pool
         pool = get_credential_pool()
         _PROVIDER_KEY_MAP = {
             "SILICONFLOW_API_KEY": ("siliconflow", "https://api.siliconflow.cn/v1"),
@@ -801,6 +805,7 @@ def _reset_credential_pool(updates: Any) -> None:
 def _update_config_and_refresh_clients(updates: Any) -> None:
     """更新 config 模块变量并刷新 router/TTS/子 Agent 客户端。"""
     import os
+
     import config
     from utils.encrypted_credential import protect_credential
     config.MIMO_API_KEY = protect_credential(updates.get("MIMO_API_KEY", os.getenv("MIMO_API_KEY", "")))
@@ -930,89 +935,43 @@ _KNOWN_PROVIDERS = {
         # 用 AGNES_BASE_URL env 作为单一来源，私有化部署时 env 覆盖默认值
         "base_url": os.getenv("AGNES_BASE_URL", "https://apihub.agnes-ai.cn/v1"),
     },
-    "OLLAMA_BASE_URL": {
-        "id": "ollama", "label": "Ollama 本地大模型", "format": "openai",
-        "base_url": "http://localhost:11434/v1",
-    },
 }
 
 
-def _auto_register_providers(updates: dict) -> None:
+async def _auto_register_providers(updates: dict) -> None:
     """当用户配置了免费模型平台的 Key，自动注册为自定义 Provider。"""
-    import os
-    from web.config_service import get_config_service
-    from web.custom_providers import register_into_router
+    from web.app_ref import get_app
+    from web.routers.models import get_provider_application_service
 
-    cfg = get_config_service()
-    existing = cfg.get("models.providers", {}) or {}
-    # 基于 _KNOWN_PROVIDERS 插入顺序计算 order 索引
+    app = get_app()
+    if not hasattr(app, "state") or not hasattr(app.state, "core"):
+        logger.debug("setup.auto_provider_runtime_skip error=app core unavailable")
+        return
+    service = get_provider_application_service(app)
     known_keys = list(_KNOWN_PROVIDERS.keys())
 
     for env_key, provider_info in _KNOWN_PROVIDERS.items():
-        # Ollama 特殊处理：无需 API Key，只需要 base_url
-        if env_key == "OLLAMA_BASE_URL":
-            base_url = updates.get(env_key, "").strip()
-            if not base_url:
-                continue
-            api_key = "ollama"  # 占位 Key
-        else:
-            api_key = updates.get(env_key, "").strip()
-            if not api_key:
-                continue
-            base_url = provider_info.get("base_url", "")
+        api_key = updates.get(env_key, "").strip()
+        if not api_key:
+            continue
+        base_url = provider_info.get("base_url", "")
 
         pid = provider_info["id"]
-
-        # 写入凭证文件
-        from config import get_credentials_dir
-        cred_dir = get_credentials_dir()
-        cred_dir.mkdir(parents=True, exist_ok=True)
-        fp = cred_dir / f"provider_{pid}.key"
-        from web._provider_keys import _encode_key
-        fp.write_text(_encode_key(api_key) + "\n", encoding="utf-8")
-        with contextlib.suppress(OSError):
-            os.chmod(fp, 0o600)
-
-        # 注册到配置（如果尚未存在）
-        if pid not in existing:
-            record = {
-                "label": provider_info["label"],
-                "format": provider_info["format"],
-                "base_url": base_url,
-                "default_model": "",
-                "enabled": True,
-                "order": known_keys.index(env_key),
-            }
-            if provider_info.get("builtin"):
-                record["builtin"] = True
-            cfg.set(f"models.providers.{pid}", record)
-            logger.info("setup.auto_provider_registered id={} order={}", pid, known_keys.index(env_key))
-
-        # 注册到运行时 router（通过 app.state）
-        try:
-            from web.app_ref import get_app
-            app = get_app()
-            if hasattr(app, "state") and hasattr(app.state, "core"):
-                router_obj = app.state.core.router
-                register_into_router(
-                    router_obj, pid,
-                    provider_info["format"],
-                    base_url,
-                    api_key,
-                )
-                logger.info("setup.auto_provider_runtime id={}", pid)
-        except (OSError, KeyError, ValueError, RuntimeError, TypeError) as e:
-            logger.debug("setup.auto_provider_runtime_skip error={}", str(e))
+        record = {
+            "label": provider_info["label"],
+            "format": provider_info["format"],
+            "base_url": base_url,
+            "default_model": "",
+            "enabled": True,
+            "order": known_keys.index(env_key),
+        }
+        if provider_info.get("builtin"):
+            record["builtin"] = True
+        await service.upsert_from_setup(pid, record, api_key)
+        logger.info("setup.auto_provider_registered id={} order={}", pid, known_keys.index(env_key))
 
 
 # ── USER.md 个人资料配置 ────────────────────────────────────
-
-import re as _re
-import time as _time
-import platform as _platform
-import socket as _socket
-
-
 def _detect_device_info_for_profile() -> dict:
     """检测设备信息用于 USER.md"""
     info = {
@@ -1342,7 +1301,6 @@ def _write_disclaimer_agreement(user_md_path: Path, agreed: bool) -> str:
 
     若已存在该区块则替换；否则追加到文件末尾。
     """
-    from datetime import datetime
 
     agreed_at = _get_local_now().isoformat(timespec="seconds")
     new_section = (

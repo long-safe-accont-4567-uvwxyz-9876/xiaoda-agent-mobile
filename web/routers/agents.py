@@ -1,17 +1,18 @@
 from __future__ import annotations
-from typing import Any
 
 import base64
 import json
 import re
 import time
 from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from loguru import logger
 
-from web.schemas import Envelope
 from web.routers.auth import get_current_user
+from web.schemas import Envelope
+from web.wallpaper_config import normalize_wallpaper_fields
 
 router = APIRouter(tags=["agents"])
 
@@ -190,7 +191,7 @@ async def set_personality(name: str, body: dict, request: Request, _user: str = 
     text = body.get("personality", "")
     # 主体小妲特殊处理：人格写入 SOUL.md，build_system_prompt 按 mtime 自动失效缓存
     if name == "xiaoda":
-        from config import reverse_agent_name_replacements, WORKSPACE_DIR
+        from config import WORKSPACE_DIR, reverse_agent_name_replacements
         text = reverse_agent_name_replacements(text)
         soul_path = WORKSPACE_DIR / "SOUL.md"
         soul_path.write_text(text, encoding="utf-8-sig")
@@ -212,9 +213,9 @@ async def get_agent_names(_user: str = Depends(get_current_user)) -> Any:
     只使用中文显示名 (display_name)，不使用英文显示名。
     """
     from config import (
-        get_all_deprecated_names,
-        get_agent_display_name,
         agent_names,
+        get_agent_display_name,
+        get_all_deprecated_names,
     )
 
     def _best_display(agent_key: str) -> str | None:
@@ -258,8 +259,13 @@ async def upload_wallpaper(name: str, body: dict, request: Request, _user: str =
     同时清理该 agent 的旧壁纸文件（仅保留最新一张）。
     """
     registry = _registry(request)
-    if not registry.get(name):
-        raise HTTPException(404, f"Agent {name} 不存在")
+    current_agent = registry.get(name)
+    if not current_agent:
+        raise HTTPException(404, f"Agent {name} does not exist")
+    try:
+        wallpaper_settings = normalize_wallpaper_fields(body, current=current_agent)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
     m = _DATAURL_RE.match(body.get("data_url", ""))
     if not m:
         raise HTTPException(400, "仅支持 png/jpg/webp 的 data URL")
@@ -277,6 +283,13 @@ async def upload_wallpaper(name: str, body: dict, request: Request, _user: str =
     fp = _WALLPAPER_DIR / f"{name}_{ts}.{ext}"
     fp.write_bytes(raw)
     url = f"/media/wallpapers/{fp.name}"
+    wallpaper_settings["wallpaper"] = url
+    try:
+        updated = await registry.update(name, wallpaper_settings)
+    except (OSError, ValueError, RuntimeError) as exc:
+        fp.unlink(missing_ok=True)
+        logger.warning("agents.wallpaper_config_save_failed: {}", exc)
+        raise HTTPException(500, "Wallpaper settings could not be saved") from exc
     # 清理该 agent 的旧上传壁纸文件（保留最新一张，不删除默认壁纸 {name}.ext）
     try:
         for old in _WALLPAPER_DIR.glob(f"{name}_*.*"):
@@ -284,20 +297,8 @@ async def upload_wallpaper(name: str, body: dict, request: Request, _user: str =
                 old.unlink(missing_ok=True)
     except OSError:
         pass
-    if name == "xiaoda":
-        # 主体不在 dispatcher 中，壁纸持久化到 webui 配置
-        from web.config_service import get_config_service
-        try:
-            get_config_service().set("ui.main_wallpaper", url)
-        except (OSError, KeyError, ValueError, RuntimeError, TypeError) as exc:
-            logger.warning("agents.wallpaper_config_save_failed: {}", exc)
-            raise HTTPException(500, "壁纸配置保存失败，请检查磁盘空间") from exc
-        from web.agent_registry import MAIN_AGENT_META
-        MAIN_AGENT_META["wallpaper"] = url
-    else:
-        await registry.update(name, {"wallpaper": url})
     await _audit(request, "wallpaper", name)
-    return Envelope(data={"name": name, "wallpaper": url})
+    return Envelope(data={key: updated[key] for key in ("name", "wallpaper", "wallpaper_focus", "wallpaper_overlay", "wallpaper_motion")})
 
 
 @router.post("/agents/{name}/test", response_model=Envelope[dict])

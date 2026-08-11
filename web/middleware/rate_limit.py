@@ -30,15 +30,14 @@ import os
 import sqlite3
 import time
 from collections import defaultdict
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any, Tuple
-from collections.abc import Iterable
 
 from loguru import logger
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
-
 
 # ── 写操作 HTTP 方法 (应用更严的写端点限制) ──
 _WRITE_METHODS = frozenset({"POST", "PUT", "DELETE", "PATCH"})
@@ -455,9 +454,19 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             "rate_limit.exceeded scope={} host={} path={} retry_after={}s",
             scope, host, path, wait,
         )
+        from web.error_handler import build_error_body
+
+        content = build_error_body(
+            code="RATE_LIMITED",
+            message="Rate limit exceeded",
+            stage="validate",
+            retryable=True,
+            details={"scope": scope},
+        )
+        content["retry_after"] = wait
         return JSONResponse(
             status_code=429,
-            content={"detail": "Rate limit exceeded", "retry_after": wait},
+            content=content,
             headers={"Retry-After": str(wait)},
         )
 

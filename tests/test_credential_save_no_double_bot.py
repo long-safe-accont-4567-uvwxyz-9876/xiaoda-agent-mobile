@@ -229,11 +229,11 @@ class TestSaveKeysSingleTask:
     """验证 save_keys 只创建一个后台任务且 qq_changed 判定正确。"""
 
     @staticmethod
-    def _mock_setup_wizard(monkeypatch):
+    def _mock_setup_wizard(monkeypatch, tmp_path):
         """注入 mock setup_wizard 模块，避免真实 .env 读写。"""
         mock_sw = types.ModuleType("setup_wizard")
-        mock_sw.ENV_PATH = "/tmp/test_env_setup_task5"
-        mock_sw.ENV_EXAMPLE_PATH = "/tmp/test_env_example_setup_task5"
+        mock_sw.ENV_PATH = str(tmp_path / "test_env_setup_task5")
+        mock_sw.ENV_EXAMPLE_PATH = str(tmp_path / "test_env_example_setup_task5")
         mock_sw.REQUIRED_KEYS = []
         mock_sw._parse_env_lines = lambda x: []
         mock_sw._load_env_values = lambda: {}
@@ -254,15 +254,18 @@ class TestSaveKeysSingleTask:
         monkeypatch.setattr("web.routers.setup._reload_env_and_cache", mock_reload_env_and_cache)
         monkeypatch.setattr("web.routers.setup._reset_credential_pool", lambda updates: None)
         monkeypatch.setattr("web.routers.setup._update_config_and_refresh_clients", lambda updates: None)
-        monkeypatch.setattr("web.routers.setup._auto_register_providers", lambda updates: None)
+        async def mock_auto_register_providers(updates):
+            return None
 
-    async def test_save_keys_qq_changed_creates_single_task(self, monkeypatch):
+        monkeypatch.setattr("web.routers.setup._auto_register_providers", mock_auto_register_providers)
+
+    async def test_save_keys_qq_changed_creates_single_task(self, monkeypatch, tmp_path):
         """保存新 QQ 凭证时 save_keys 应只 create_task 一次，且 qq_changed=True。
 
         根因：原实现创建两个后台任务（_background_reinit + _restart_qq_bot_after_save），
         修复后只创建一个（_reinit_and_maybe_restart_qq）。
         """
-        self._mock_setup_wizard(monkeypatch)
+        self._mock_setup_wizard(monkeypatch, tmp_path)
         self._mock_save_helpers(monkeypatch)
 
         # 保存前 QQ 凭证为空（确保 _qq_changed=True）
@@ -281,7 +284,7 @@ class TestSaveKeysSingleTask:
             mock_reinit_and_restart,
         )
 
-        from web.routers.setup import save_keys, _reinit_tasks
+        from web.routers.setup import _reinit_tasks, save_keys
 
         # 清空已完成的 task
         _reinit_tasks[:] = [t for t in _reinit_tasks if not t.done()]
@@ -309,9 +312,9 @@ class TestSaveKeysSingleTask:
         assert captured_args == [True], \
             f"_reinit_and_maybe_restart_qq 应被调用一次且 qq_changed=True，实际 {captured_args}"
 
-    async def test_save_keys_qq_unchanged_no_force_restart(self, monkeypatch):
+    async def test_save_keys_qq_unchanged_no_force_restart(self, monkeypatch, tmp_path):
         """QQ 凭证未变更（用户重新提交相同值）时 qq_changed=False，不强制重启。"""
-        self._mock_setup_wizard(monkeypatch)
+        self._mock_setup_wizard(monkeypatch, tmp_path)
         self._mock_save_helpers(monkeypatch)
 
         # 保存前后 QQ 凭证相同
@@ -329,7 +332,7 @@ class TestSaveKeysSingleTask:
             mock_reinit_and_restart,
         )
 
-        from web.routers.setup import save_keys, _reinit_tasks
+        from web.routers.setup import _reinit_tasks, save_keys
 
         _reinit_tasks[:] = [t for t in _reinit_tasks if not t.done()]
 
@@ -350,9 +353,9 @@ class TestSaveKeysSingleTask:
         assert captured_args == [False], \
             f"QQ 凭证未变更时 qq_changed 应为 False，实际 {captured_args}"
 
-    async def test_save_keys_non_qq_update_qq_unchanged(self, monkeypatch):
+    async def test_save_keys_non_qq_update_qq_unchanged(self, monkeypatch, tmp_path):
         """非 QQ 凭证更新时 qq_changed 应为 False。"""
-        self._mock_setup_wizard(monkeypatch)
+        self._mock_setup_wizard(monkeypatch, tmp_path)
         self._mock_save_helpers(monkeypatch)
 
         captured_args: list[bool] = []
@@ -365,7 +368,7 @@ class TestSaveKeysSingleTask:
             mock_reinit_and_restart,
         )
 
-        from web.routers.setup import save_keys, _reinit_tasks
+        from web.routers.setup import _reinit_tasks, save_keys
 
         _reinit_tasks[:] = [t for t in _reinit_tasks if not t.done()]
 
@@ -384,9 +387,39 @@ class TestSaveKeysSingleTask:
         assert captured_args == [False], \
             f"非 QQ 凭证更新时 qq_changed 应为 False，实际 {captured_args}"
 
-    async def test_save_keys_qq_enable_change_triggers_restart(self, monkeypatch):
+    async def test_save_keys_provider_mutation_does_not_bypass_application_service_lock(
+        self, monkeypatch, tmp_path
+    ):
+        self._mock_setup_wizard(monkeypatch, tmp_path)
+        self._mock_save_helpers(monkeypatch)
+        service_calls: list[dict] = []
+
+        async def register(updates):
+            service_calls.append(updates)
+
+        def fail_direct_pool_mutation(updates):
+            raise AssertionError("setup 不应在应用服务事务外直接修改 Provider 凭证池")
+
+        monkeypatch.setattr("web.routers.setup._auto_register_providers", register)
+        monkeypatch.setattr("web.routers.setup._reset_credential_pool", fail_direct_pool_mutation)
+        monkeypatch.setattr(
+            "web.routers.setup._reinit_and_maybe_restart_qq",
+            lambda changed: asyncio.sleep(0),
+        )
+
+        from web.routers.setup import _reinit_tasks, save_keys
+
+        result = await save_keys({"keys": {"DEEPSEEK_API_KEY": "secret-one"}})
+        for task in list(_reinit_tasks):
+            if not task.done():
+                await task
+
+        assert result.ok is True
+        assert service_calls == [{"DEEPSEEK_API_KEY": "secret-one"}]
+
+    async def test_save_keys_qq_enable_change_triggers_restart(self, monkeypatch, tmp_path):
         """仅 ENABLE_QQ_BOT 从 false 变 true 也应触发 qq_changed=True。"""
-        self._mock_setup_wizard(monkeypatch)
+        self._mock_setup_wizard(monkeypatch, tmp_path)
         self._mock_save_helpers(monkeypatch)
 
         # 旧值：ENABLE_QQ_BOT=false
@@ -404,7 +437,7 @@ class TestSaveKeysSingleTask:
             mock_reinit_and_restart,
         )
 
-        from web.routers.setup import save_keys, _reinit_tasks
+        from web.routers.setup import _reinit_tasks, save_keys
 
         _reinit_tasks[:] = [t for t in _reinit_tasks if not t.done()]
 

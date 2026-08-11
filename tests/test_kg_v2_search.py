@@ -1,31 +1,28 @@
 """KG v2 向量存储 + 混合检索测试。"""
-import asyncio
-import json
+import importlib.util
+import os
+import sqlite3
+import tempfile
 import time
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 
 from db.database import DatabaseManager
 from db.db_kg_v2 import KnowledgeDBV2
+from memory.kg_search import KGSearchEngine
+from memory.vector_store import VectorStore
 
 
 @pytest.fixture
 def mock_vec_store():
     """创建带 mock embed 的 VectorStore。"""
-    try:
-        import sqlite_vec
-    except ImportError:
+    if importlib.util.find_spec("sqlite_vec") is None:
         pytest.skip("sqlite_vec not available")
-    from memory.vector_store import VectorStore
-    import tempfile
-    import os
 
     fd, path = tempfile.mkstemp(suffix=".db")
     os.close(fd)
-    # 显式 remote：避免测试继承 .env 的 EMBED_MODE=local（本地模型 512 维
-    # 与测试 mock 的 1024 维向量不匹配导致 upsert 失败），隔离环境副作用
-    store = VectorStore(path, embed_api_key="fake-key", embed_mode="remote")
+    store = VectorStore(path, embed_api_key="fake-key")
     return store, path
 
 
@@ -35,7 +32,6 @@ async def test_kg_vec_tables_created(mock_vec_store):
     try:
         await store.init()
         # Verify tables exist
-        import sqlite3
         conn = sqlite3.connect(path)
         tables = {r[0] for r in conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table'"
@@ -45,7 +41,6 @@ async def test_kg_vec_tables_created(mock_vec_store):
         assert "kg_relations_vec" in tables
     finally:
         await store.close()
-        import os
         os.unlink(path)
 
 
@@ -66,7 +61,6 @@ async def test_upsert_and_search_kg_entity(mock_vec_store):
         assert results[0][0] == 1  # rowid
     finally:
         await store.close()
-        import os
         os.unlink(path)
 
 
@@ -85,13 +79,7 @@ async def test_upsert_and_search_kg_relation(mock_vec_store):
         assert results[0][0] == 1  # rowid
     finally:
         await store.close()
-        import os
         os.unlink(path)
-
-
-# ── KGSearchEngine tests ──────────────────────────────────────
-
-from memory.kg_search import KGSearchEngine
 
 
 def test_rrf_fuse_combines_ranked_lists():

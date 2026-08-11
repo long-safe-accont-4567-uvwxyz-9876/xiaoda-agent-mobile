@@ -19,7 +19,9 @@ class SessionHandleManagerTest {
         assertTrue(handle.contains("secret-bearer-token").not())
         now += 60_001L
         assertNull(manager.resolve(handle))
-        assertNull(store.read())
+        assertEquals("secret-bearer-token", store.read())
+        assertNull(manager.resolve(handle))
+        assertEquals("secret-bearer-token", manager.resolve(requireNotNull(manager.restore())))
     }
 
     @Test

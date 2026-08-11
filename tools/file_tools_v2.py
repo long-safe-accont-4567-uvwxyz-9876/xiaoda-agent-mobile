@@ -1,13 +1,13 @@
-from typing import Any
 import asyncio
 import os
 import re
-import shlex
 import tempfile
 import urllib.parse
-from loguru import logger
-from tool_engine.tool_registry import register_tool, ToolPermission, ToolResult
+from typing import Any
 
+from loguru import logger
+
+from tool_engine.tool_registry import ToolPermission, ToolResult, register_tool
 
 # ==================== 文件路径沙箱 ====================
 
@@ -97,7 +97,7 @@ def _validate_path(path: str, mode: str = "read") -> tuple[bool, str, str]:
                             in_allowed = True
                             break
                     if not in_allowed:
-                        return False, re_resolved, f"符号链接目标不在允许的目录范围内"
+                        return False, re_resolved, "符号链接目标不在允许的目录范围内"
                     resolved = re_resolved
             # 写入模式额外限制：只允许项目目录和 tts_cache
             if mode == "write":
@@ -316,26 +316,6 @@ async def shell_command(command: str) -> ToolResult:
     danger_reason = _is_command_dangerous(command)
     if danger_reason:
         return ToolResult.fail(danger_reason)
-
-    # 尝试通过 PTY 终端执行
-    try:
-        from web.pty_executor import execute_on_pty
-        from web.ws_hub import _pty_sessions, _pty_sessions_lock
-
-        with _pty_sessions_lock:
-            has_active_terminal = any(
-                sess.get("alive") for sess in _pty_sessions.values()
-            )
-
-        if has_active_terminal:
-            ok, output = await execute_on_pty("all", command, timeout=30.0)
-            if ok:
-                if output:
-                    output = _sanitize_output(output)
-                    return ToolResult.ok(output[:3000])
-                return ToolResult.ok("命令执行成功（无输出）")
-    except Exception:
-        logger.debug("file_tools.pty_exec_error", exc_info=True)
 
     # Fallback: subprocess（无终端会话时）
     # 使用 asyncio.create_subprocess_shell 便于取消时 kill 子进程

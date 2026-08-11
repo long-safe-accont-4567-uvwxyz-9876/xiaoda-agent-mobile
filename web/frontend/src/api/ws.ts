@@ -3,7 +3,7 @@ export interface WsEvent {
   [key: string]: unknown
 }
 
-import { bearerToken } from '../platform/authSession'
+import { bearerToken, ensureNativeSession } from '../platform/authSession'
 import { isAndroidWebView } from '../platform/nativeBridge'
 import { runtimeWebSocketUrl } from '../platform/runtimeConfig'
 
@@ -45,7 +45,13 @@ export class WsClient {
       old.onerror = null
       try { old.close() } catch { /* ignore */ }
     }
-    this._open(token)
+    if (isAndroidWebView()) {
+      void ensureNativeSession().then(session => {
+        if (!this._intentionalDisconnect && session?.handle) this._open(session.handle)
+      }).catch(() => this.handleSessionUnavailable())
+    } else {
+      this._open(token)
+    }
   }
 
   // 仅建立连接，不触碰重连状态/计数：供 connect() 与后台重连复用。
@@ -110,6 +116,14 @@ export class WsClient {
     }
   }
 
+  private handleSessionUnavailable() {
+    this._unauthorized = true
+    this._reconnecting = false
+    this.connected = false
+    this.emit({ type: 'ws_disconnected' })
+    if (!location.hash.includes('/login')) location.hash = '#/login'
+  }
+
   disconnect() {
     this.stopHeartbeat()
     if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null }
@@ -171,7 +185,12 @@ export class WsClient {
     this.reconnectTimer = setTimeout(() => {
       // 从 localStorage 读取最新 token，避免使用过期闭包 token
       const freshToken = bearerToken()
-      if (freshToken || document.cookie.includes('xiaoda_session=')) {
+      if (isAndroidWebView()) {
+        void ensureNativeSession().then(session => {
+          if (session?.handle && !this._intentionalDisconnect) this._open(session.handle)
+          else this.handleSessionUnavailable()
+        }).catch(() => this.handleSessionUnavailable())
+      } else if (freshToken || document.cookie.includes('xiaoda_session=')) {
         // 直接 _open 而非 connect()：保持 _reconnecting=true（黄灯持续）、
         // 保留 reconnectAttempts 使指数退避连续；重连失败时 onclose 会再次调度，
         // 形成真正的"无限重连"链路。

@@ -1,0 +1,10 @@
+- generic [ref=f1e3]:
+  - generic: 本 Agent 由作者飞个人学习用途二创开发
+  - generic [ref=f1e6]:
+    - generic [ref=f1e7]:
+      - heading "Xiaoda Agent" [level=1] [ref=f1e19]
+      - paragraph [ref=f1e20]: 小妲在此恭候
+    - generic [ref=f1e21]:
+      - textbox "输入访问密码…" [ref=f1e22]: qa
+      - paragraph [ref=f1e24]: HTTP 200
+      - button "进入世界树" [ref=f1e23]

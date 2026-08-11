@@ -27,6 +27,12 @@ from security.credential_vault import (
     is_encrypted,
     migrate_env_file,
 )
+import security.credential_vault as cv
+
+
+def _encrypt_v1(plaintext: str) -> str:
+    with patch.object(cv.sys, "platform", "linux"):
+        return encrypt(plaintext)
 
 
 def test_encrypt_decrypt_roundtrip():
@@ -57,7 +63,7 @@ def test_is_encrypted():
     assert is_encrypted("sk-foo-bar") is False
     # 缺少 base64 主体
     assert is_encrypted("enc:v1:") is False
-    # 加密产物必然是 enc:v1: 前缀
+    # 加密产物应被公共识别函数识别
     assert is_encrypted(encrypt("test-secret")) is True
 
 
@@ -80,7 +86,7 @@ def test_migrate_env_idempotent(tmp_path):
 
     content1 = env_file.read_text(encoding="utf-8")
     # 明文已被加密
-    assert "enc:v1:" in content1
+    assert "enc:v" in content1
     assert "sk-plaintext-key" not in content1
     assert "sk-agnes-key" not in content1
     assert "ghp_token_abc" not in content1
@@ -102,7 +108,7 @@ def test_encrypt_different_per_machine():
     plaintext = "sk-same-secret-value"
 
     # 本机加密并解密
-    enc_default = encrypt(plaintext)
+    enc_default = _encrypt_v1(plaintext)
     assert decrypt(enc_default) == plaintext
 
     # 模拟另一台机器（不同用户名 + 主机名）
@@ -110,7 +116,7 @@ def test_encrypt_different_per_machine():
          patch("security.credential_vault.socket") as mock_socket:
         mock_getpass.getuser.return_value = "attacker"
         mock_socket.gethostname.return_value = "attacker-pc"
-        enc_attacker = encrypt(plaintext)
+        enc_attacker = _encrypt_v1(plaintext)
 
     # 不同机器产生不同密文
     assert enc_attacker != enc_default

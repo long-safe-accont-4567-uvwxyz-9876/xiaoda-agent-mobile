@@ -10,6 +10,7 @@
 import time
 
 import websockets
+from websockets.exceptions import ConnectionClosed, ConnectionClosedError, ConnectionClosedOK
 
 import cli
 import cli_client
@@ -81,7 +82,7 @@ class _FakeWS:
         self.calls += 1
         if self.calls <= self.fail_times:
             # 与服务端重启场景一致：连接被 1000 正常关闭
-            raise websockets.exceptions.ConnectionClosedOK(None, None)
+            raise ConnectionClosedOK(None, None)
         return f"reply-{text}"
 
     async def close(self) -> None:
@@ -97,16 +98,17 @@ def _teardown(c: cli.CLIInterface) -> None:
     c._loop_thread.join(timeout=2)
 
 
-def test_is_ws_closed_error_detects_connection_closed():
+def test_is_ws_closed_error_detects_connection_closed(monkeypatch):
     """ConnectionClosed* 异常应被识别为连接关闭（触发重连），其他异常不触发。"""
     c = _new_cli()
     try:
+        monkeypatch.delattr(websockets, "exceptions", raising=False)
         assert c._is_ws_closed_error(
-            websockets.exceptions.ConnectionClosedOK(None, None)) is True
+            ConnectionClosedOK(None, None)) is True
         assert c._is_ws_closed_error(
-            websockets.exceptions.ConnectionClosedError(None, None)) is True
+            ConnectionClosedError(None, None)) is True
         assert c._is_ws_closed_error(
-            websockets.exceptions.ConnectionClosed(None, None)) is True
+            ConnectionClosed(None, None)) is True
         assert c._is_ws_closed_error(RuntimeError("boom")) is False
         assert c._is_ws_closed_error(ValueError("boom")) is False
     finally:

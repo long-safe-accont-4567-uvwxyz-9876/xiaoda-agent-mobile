@@ -1,11 +1,11 @@
 """健康探针（R12）— LLM / TTS / 视频 / MCP / DB / 向量库 在线探活。"""
 from __future__ import annotations
-from typing import Any
 
+import asyncio
 import json
 import time
-import asyncio
 from pathlib import Path
+from typing import Any
 
 from loguru import logger
 
@@ -16,7 +16,13 @@ async def probe_llm(core: Any, route: str = "chat") -> dict:
     # Setup 保存 Key 后会主动调用 refresh_client()
     from model_router import ROUTE_TABLE
     if route not in ROUTE_TABLE:
-        return {"ok": False, "error": f"未知路由 {route}", "latency_ms": 0}
+        return _probe_failure(
+            code="INVALID_REQUEST",
+            message="未知路由",
+            stage="validate",
+            retryable=False,
+            latency_ms=0,
+        )
     t0 = time.time()
     try:
         result = await core.router.route(
@@ -26,14 +32,27 @@ async def probe_llm(core: Any, route: str = "chat") -> dict:
         text = result if isinstance(result, str) else \
             ((getattr(getattr(result, "choices", [None])[0], "message", None) and
               result.choices[0].message.content) or "")
-        ok = bool(text and text.strip())
-        return {"ok": ok, "latency_ms": int((time.time() - t0) * 1000),
-                "model": ROUTE_TABLE[route].get("model", ""),
-                "reply_excerpt": (text or "")[:60],
-                "error": "" if ok else "空回复"}
+        latency_ms = int((time.time() - t0) * 1000)
+        model = ROUTE_TABLE[route].get("model", "")
+        if not text or not text.strip():
+            return _probe_failure(
+                code="INVALID_RESPONSE",
+                message="上游返回空回复",
+                stage="probe",
+                retryable=True,
+                latency_ms=latency_ms,
+                model=model,
+            )
+        return {"ok": True, "latency_ms": latency_ms,
+                "model": model, "reply_excerpt": text[:60],
+                "code": None, "stage": "probe", "retryable": False,
+                "message": "探针成功", "error": ""}
     except Exception as e:
-        return {"ok": False, "latency_ms": int((time.time() - t0) * 1000),
-                "model": ROUTE_TABLE[route].get("model", ""), "error": str(e)[:200]}
+        return _probe_error_from_exception(
+            e,
+            latency_ms=int((time.time() - t0) * 1000),
+            model=ROUTE_TABLE[route].get("model", ""),
+        )
 
 
 async def probe_provider(core: Any, provider_id: str) -> dict:
@@ -54,14 +73,32 @@ async def probe_provider(core: Any, provider_id: str) -> dict:
     t0 = time.time()
     record = cfg.get(f"models.providers.{provider_id}")
     if not record:
-        return {"ok": False, "error": f"provider {provider_id} 不存在", "latency_ms": 0}
+        return _probe_failure(
+            code="MODEL_NOT_FOUND",
+            message="provider 不存在",
+            stage="validate",
+            retryable=False,
+            latency_ms=0,
+        )
     key = load_provider_key(provider_id)
     if not key:
-        return {"ok": False, "error": "未配置 API Key", "latency_ms": 0}
+        return _probe_failure(
+            code="AUTH_FAILED",
+            message="未配置 API Key",
+            stage="auth",
+            retryable=False,
+            latency_ms=0,
+        )
 
     model = await _resolve_provider_model(record, provider_id, key)
     if not model:
-        return {"ok": False, "error": "未配置 default_model，请在该 provider 设置中填写默认模型名称", "latency_ms": 0}
+        return _probe_failure(
+            code="MODEL_NOT_FOUND",
+            message="未配置 default_model，请在该 provider 设置中填写默认模型名称",
+            stage="probe",
+            retryable=False,
+            latency_ms=0,
+        )
 
     return await _perform_provider_probe(record, key, model, t0)
 
@@ -69,6 +106,7 @@ async def probe_provider(core: Any, provider_id: str) -> dict:
 async def _resolve_provider_model(record: dict, provider_id: str, key: str) -> str:
     """解析 provider 的默认模型，依次从 record/ROUTE_TABLE/API 列表获取"""
     import asyncio
+
     from web.custom_providers import build_client
 
     model = record.get("default_model") or ""
@@ -81,13 +119,21 @@ async def _resolve_provider_model(record: dict, provider_id: str, key: str) -> s
         if _route_cfg.get("client") == provider_id and _route_cfg.get("model"):
             return _route_cfg["model"]
 
+    if record.get("format", "openai") == "anthropic":
+        return ""
+
     # 尝试通过 API 列出可用模型，优先选择免费/轻量模型
     try:
         client = build_client(record.get("format", "openai"), record["base_url"], key)
-        models_resp = await asyncio.wait_for(client.models.list(), timeout=10)
-        model_list = models_resp.data if hasattr(models_resp, "data") else []
-        if model_list:
-            return _pick_model_from_list(model_list)
+        try:
+            models_resp = await asyncio.wait_for(client.models.list(), timeout=10)
+            model_list = models_resp.data if hasattr(models_resp, "data") else []
+            if model_list:
+                return _pick_model_from_list(model_list)
+        finally:
+            close = getattr(client, "aclose", None)
+            if close is not None:
+                await close()
     except Exception:
         logger.debug("probes.model_list_error", exc_info=True)
     return ""
@@ -110,10 +156,11 @@ def _pick_model_from_list(model_list: list) -> str:
 async def _perform_provider_probe(record: dict, key: str, model: str, t0: float) -> dict:
     """构建临时客户端并发起探活请求"""
     import asyncio
+
     from web.custom_providers import build_client
 
+    client = build_client(record.get("format", "openai"), record["base_url"], key)
     try:
-        client = build_client(record.get("format", "openai"), record["base_url"], key)
         resp = await asyncio.wait_for(
             client.chat.completions.create(
                 model=model,
@@ -121,24 +168,85 @@ async def _perform_provider_probe(record: dict, key: str, model: str, t0: float)
                 max_tokens=30),
             timeout=30)
         text = resp.choices[0].message.content or ""
-        return {"ok": bool(text.strip()), "latency_ms": int((time.time() - t0) * 1000),
+        latency_ms = int((time.time() - t0) * 1000)
+        if not text.strip():
+            return _probe_failure(
+                code="INVALID_RESPONSE",
+                message="上游返回空回复",
+                stage="probe",
+                retryable=True,
+                latency_ms=latency_ms,
+                model=model,
+            )
+        return {"ok": True, "latency_ms": latency_ms,
                 "model": model, "reply_excerpt": text[:60],
-                "error": "" if text.strip() else "空回复"}
+                "code": None, "stage": "probe", "retryable": False,
+                "message": "探针成功", "error": ""}
     except Exception as e:
-        err_msg = _format_provider_error(str(e)[:200])
-        return {"ok": False, "latency_ms": int((time.time() - t0) * 1000),
-                "model": model, "error": err_msg}
+        from web.routers.model_discovery import _protocol_error_from_exception
+
+        error = _protocol_error_from_exception(e)
+        return _probe_failure(
+            code=error.code,
+            message=error.message,
+            stage=error.stage,
+            retryable=error.retryable,
+            latency_ms=int((time.time() - t0) * 1000),
+            model=model,
+        )
+    finally:
+        close = getattr(client, "aclose", None)
+        if close is not None:
+            await close()
 
 
-def _format_provider_error(err_msg: str) -> str:
-    """识别常见错误并给出友好提示"""
-    if "402" in err_msg or "Insufficient credits" in err_msg or "never purchased" in err_msg:
-        return "账户余额不足，请充值后再试"
-    if "403" in err_msg and "region" in err_msg:
-        return "该模型在当前地区不可用"
-    if "403" in err_msg and "not available" in err_msg:
-        return "该模型不可用，请更换 default_model"
-    return err_msg
+def _probe_failure(
+    *,
+    code: str,
+    message: str,
+    stage: str,
+    retryable: bool,
+    latency_ms: int,
+    model: str = "",
+) -> dict:
+    return {
+        "ok": False,
+        "code": code,
+        "message": message,
+        "stage": stage,
+        "retryable": retryable,
+        "latency_ms": latency_ms,
+        "model": model,
+        "error": message,
+    }
+
+
+def _probe_error_from_exception(
+    exc: Exception,
+    *,
+    latency_ms: int,
+    model: str = "",
+) -> dict:
+    from web.routers.model_discovery import _protocol_error_from_exception
+
+    error = _protocol_error_from_exception(exc)
+    if error.code == "INVALID_RESPONSE":
+        return _probe_failure(
+            code="INVALID_RESPONSE",
+            message="探针执行失败",
+            stage="probe",
+            retryable=True,
+            latency_ms=latency_ms,
+            model=model,
+        )
+    return _probe_failure(
+        code=error.code,
+        message=error.message,
+        stage=error.stage,
+        retryable=error.retryable,
+        latency_ms=latency_ms,
+        model=model,
+    )
 
 
 async def probe_tts(core: Any) -> dict:
@@ -152,6 +260,7 @@ async def probe_tts(core: Any) -> dict:
         audio_url = None
         if ok:
             import shutil
+
             from web.media_tasks import MEDIA_ROOT
             dest = MEDIA_ROOT / "tts" / Path(path).name
             if Path(path).resolve() != dest.resolve():
@@ -331,9 +440,7 @@ async def run_all(core: Any, on_progress: Any | None=None) -> dict:
                 res = await run_probe(core, item["id"])
             except Exception as e:
                 _elapsed = int((time.time() - _probe_t0) * 1000)
-                # 截断异常文本，防止大响应体/路径/密钥泄漏到 health_reports
-                _err_text = str(e)[:300]
-                res = {"ok": False, "error": f"探针异常: {_err_text}", "latency_ms": _elapsed}
+                res = _probe_error_from_exception(e, latency_ms=_elapsed)
             res["id"] = item["id"]
             res["label"] = item["label"]
             async with lock:

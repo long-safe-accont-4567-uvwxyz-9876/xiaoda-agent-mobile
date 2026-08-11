@@ -1,0 +1,123 @@
+- generic [active] [ref=f2e1]:
+  - generic [ref=f2e3]:
+    - generic: 本 Agent 由作者飞个人学习用途二创开发
+    - generic [ref=f2e7]:
+      - navigation [ref=f2e4157]:
+        - generic [ref=f2e4158]:
+          - generic [ref=f2e4171]:
+            - link "对话" [ref=f2e4172]:
+              - /url: "#/"
+            - link "内在世界" [ref=f2e4177]:
+              - /url: "#/insight"
+            - link "定时与问候" [ref=f2e4181]:
+              - /url: "#/schedule"
+            - link "媒体工坊" [ref=f2e4185]:
+              - /url: "#/media"
+            - link "测试中心" [ref=f2e4189]:
+              - /url: "#/health"
+            - link "仪表盘" [ref=f2e4193]:
+              - /url: "#/dashboard"
+            - link "Agent 管理" [ref=f2e4197]:
+              - /url: "#/settings/agents"
+            - link "模型与凭证" [ref=f2e4201]:
+              - /url: "#/settings/models"
+            - link "Skills 工具" [ref=f2e4205]:
+              - /url: "#/settings/tools"
+            - link "MCP 服务" [ref=f2e4209]:
+              - /url: "#/settings/mcp"
+            - link "插件管理" [ref=f2e4213]:
+              - /url: "#/settings/plugins"
+            - link "邮箱管理" [ref=f2e4217]:
+              - /url: "#/settings/mail"
+            - link "系统设置" [ref=f2e4221]:
+              - /url: "#/settings/system"
+            - link "工作流" [ref=f2e4225]:
+              - /url: "#/workflows"
+            - link "免责声明" [ref=f2e4229]:
+              - /url: "#/disclaimer"
+            - link "请作者喝杯小甜水" [ref=f2e4233]:
+              - /url: "#/sponsor"
+          - link "请作者喝杯小甜水" [ref=f2e4237]:
+            - /url: "#/sponsor"
+      - banner [ref=f2e4242]:
+        - button "Xiaoda" [ref=f2e4244]
+        - generic "署名":
+          - generic: 🌿
+          - generic: 由 飞 二创开发
+        - generic [ref=f2e4248]:
+          - generic "当前情绪：平静" [ref=f2e4249]:
+            - generic [ref=f2e4250]: 🌱
+            - generic [ref=f2e4251]: 🌿
+          - generic "连接中断..." [ref=f2e4252]
+      - main [ref=f2e17]:
+        - generic [ref=f2e4844]:
+          - heading "⚙️ 系统设置" [level=2] [ref=f2e4845]
+          - generic [ref=f2e4846]:
+            - generic [ref=f2e4851]:
+              - generic [ref=f2e4852]: 外观与语言
+              - generic [ref=f2e4855]: 权限与工作目录
+              - generic [ref=f2e4859]: 连接与访问
+              - generic [ref=f2e4863]: API Key 配置及用户资料
+              - generic [ref=f2e4867]: 系统与日志
+            - generic [ref=f2e4873]:
+              - generic [ref=f2e4875]:
+                - heading "界面与特效" [level=3] [ref=f2e4876]
+                - generic [ref=f2e4877]:
+                  - generic [ref=f2e4878]: 草元素粒子密度
+                  - generic [ref=f2e4879]:
+                    - generic [ref=f2e4880]:
+                      - radio "关"
+                      - generic [ref=f2e4881]: 关
+                    - generic [ref=f2e4883]:
+                      - radio "低"
+                      - generic [ref=f2e4884]: 低
+                    - generic [ref=f2e4886]:
+                      - radio "中" [checked]
+                      - generic [ref=f2e4887]: 中
+                    - generic [ref=f2e4889]:
+                      - radio "高"
+                      - generic [ref=f2e4890]: 高
+                - generic [ref=f2e4891]:
+                  - generic [ref=f2e4892]: 3D 卡片交互
+                  - switch [checked] [ref=f2e4893]
+                - generic [ref=f2e4896]:
+                  - generic [ref=f2e4897]: 自动朗读回复
+                  - switch [ref=f2e4898]
+                - generic [ref=f2e4901]:
+                  - generic [ref=f2e4902]: 草元素音效
+                  - generic [ref=f2e4903]:
+                    - switch [checked] [ref=f2e4904]
+                    - slider [ref=f2e4911]
+                - paragraph [ref=f2e4913]: 叶拂（发送）、风铃（回复）、露珠（点击）、晨铃（问候），全程序化合成，不含音频文件。
+                - generic [ref=f2e4914]:
+                  - generic [ref=f2e4915]: 草元素光标
+                  - switch [checked] [ref=f2e4916]
+                - paragraph [ref=f2e4919]: 小叶片光标，悬停可点击元素时叶片舒展；触屏设备自动关闭。
+                - generic [ref=f2e4920]:
+                  - generic [ref=f2e4921]: 鼠标移动拖尾
+                  - switch [ref=f2e4922]
+                - paragraph [ref=f2e4925]: 鼠标移动时身后跟随的草粒子拖尾轨迹，默认关闭；需要时可在此开启。
+                - generic [ref=f2e4926]:
+                  - generic [ref=f2e4927]:
+                    - generic [ref=f2e4928]: 界面亮度
+                    - generic [ref=f2e4929]: 95%
+                  - generic [ref=f2e4930]:
+                    - switch [checked] [ref=f2e4931]:
+                      - generic [ref=f2e4933]:
+                        - generic [ref=f2e4934]: 自适应
+                        - generic [ref=f2e4935]: 手动
+                    - slider [disabled] [ref=f2e4940]
+                - paragraph [ref=f2e4942]: 自适应模式：白天 115% · 傍晚 95% · 夜间 70%（护眼）
+              - generic [ref=f2e4944]:
+                - heading "界面语言" [level=3] [ref=f2e4945]
+                - generic [ref=f2e4946]:
+                  - generic [ref=f2e4947]: 选择 UI 显示语言
+                  - generic [ref=f2e4948]:
+                    - generic [ref=f2e4949]:
+                      - radio "中文" [checked]
+                      - generic [ref=f2e4950]: 中文
+                    - generic [ref=f2e4952]:
+                      - radio "English"
+                      - generic [ref=f2e4953]: English
+  - button "Xiaoda的虚空终端" [ref=f2e105]:
+    - generic [ref=f2e106]: ▎>_

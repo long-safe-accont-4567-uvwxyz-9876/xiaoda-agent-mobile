@@ -21,7 +21,8 @@ class SessionHandleManager(
     fun resolve(handle: String): String? {
         if (handle != activeHandle) return null
         if (clock() >= expiresAt) {
-            clear()
+            activeHandle = null
+            expiresAt = 0L
             return null
         }
         return store.read()

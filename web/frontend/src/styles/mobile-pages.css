@@ -1,0 +1,203 @@
+:is(.chat-view, .insight-view, .schedule-view, .media-view, .health-view,
+    .dashboard-view, .agents-view, .models-view, .tools-view, .mcp-view,
+    .plugins-view, .mail-view, .settings-view, .workflows-view,
+    .disclaimer-page, .sponsor-page) {
+  min-width: 0;
+  max-width: 100%;
+}
+
+:is(.chart-row, .panel-row, .config-row, .setting-row, .provider-row,
+    .tool-row, .connect-status-row, .view-header, .section-head) > * {
+  min-width: 0;
+}
+
+@media (min-width: 768px) and (max-width: 1023px) {
+  :is(.agent-grid, .server-grid, .plugin-grid, .wf-grid, .probe-grid, .stat-grid, .market-grid) {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+  :is(.chart-row, .panel-row) {
+    flex-wrap: wrap;
+  }
+  :is(.chart-box, .panel-row > .panel, .kg-section) {
+    min-width: min(100%, 280px) !important;
+  }
+}
+
+@media (max-width: 767px) {
+  :is(.chat-view, .insight-view, .schedule-view, .media-view, .health-view,
+      .dashboard-view, .agents-view, .models-view, .tools-view, .mcp-view,
+      .plugins-view, .mail-view, .settings-view, .workflows-view) {
+    width: 100%;
+    min-height: 100%;
+    min-height: 100dvh;
+    padding: 14px 12px calc(92px + env(safe-area-inset-bottom)) !important;
+    overflow-x: clip;
+  }
+
+  :is(.view-header, .section-head, .list-toolbar, .market-toolbar, .mem-toolbar,
+      .perm-toolbar, .panel-tabs, .connect-actions, .voice-select-row, .setting-row,
+      .provider-row, .tool-row, .config-row, .wallpaper-row) {
+    flex-wrap: wrap;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  :is(.view-header, .section-head, .list-toolbar, .market-toolbar) > :is(button, .n-button),
+  :is(.connect-actions, .card-actions, .provider-ops, .server-ops, .plugin-ops, .wf-card-actions) > * {
+    flex: 1 1 auto;
+  }
+
+  :is(.agent-grid, .server-grid, .plugin-grid, .wf-grid, .probe-grid,
+      .stat-grid, .market-grid, .monitor-grid, .sticker-grid, .perm-rows) {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  :is(.chart-row, .panel-row, .config-row, .setting-row, .provider-row,
+      .tool-row, .connect-body, .voice-agent-body) {
+    flex-direction: column !important;
+  }
+
+  :is(.chart-box, .chart-box.small, .panel-row > .panel, .kg-section, .mem-list,
+      .tool-main, .provider-info, .connect-body, .cfg, .main) {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: none !important;
+  }
+
+  :is(.n-data-table-wrapper, .n-table, .table-scroll, .tabs-scroll, .n-tabs-nav-scroll-wrapper,
+      .audit-list, .disk-list) {
+    max-width: 100%;
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+    overscroll-behavior-x: contain;
+    scrollbar-gutter: stable;
+  }
+
+  .n-tabs-nav { min-width: max-content; }
+  .n-tabs-tab { min-height: 48px; }
+
+  :is(button, [role='button'], .n-button, .n-switch, .n-base-selection,
+      input:not([type='hidden']), textarea, select) {
+    min-height: 48px;
+  }
+
+  :is(button, [role='button'], .n-button, .n-switch) {
+    min-width: 48px;
+  }
+
+  :is(.n-button, button, [role='button']):focus-visible {
+    outline: 3px solid rgba(143, 229, 96, 0.72);
+    outline-offset: 2px;
+  }
+
+  .n-modal {
+    width: calc(100vw - 20px) !important;
+    max-width: calc(100vw - 20px) !important;
+    max-height: calc(100lvh - 20px) !important;
+    margin: max(10px, env(safe-area-inset-top)) 10px max(10px, env(safe-area-inset-bottom));
+    overflow: auto;
+  }
+
+  .n-drawer { width: min(92vw, 380px) !important; }
+
+  .chat-view .chat-toolbar {
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+    overscroll-behavior-x: contain;
+    padding-inline: 4px;
+  }
+
+  .emotion-current, .portrait-head, .xp-hero-info { flex-wrap: wrap; }
+  .insight-view .n-tabs-nav-scroll-content { padding-inline: 2px; }
+  .insight-view .chart { min-height: 220px; }
+  .insight-view .kg-section { min-height: 240px; }
+
+  .schedule-view .greeting-card,
+  .dashboard-view .audit-row,
+  .mail-view .connect-step {
+    align-items: flex-start;
+  }
+
+  .media-view :is(audio, video) { width: 100%; max-width: 100%; }
+  .media-view .panel.side { order: 2; }
+  .health-view .probe-grid { grid-template-columns: minmax(0, 1fr) !important; }
+  .dashboard-view .chart-row { flex-direction: column; }
+  .agents-view .agent-grid { grid-template-columns: minmax(0, 1fr) !important; }
+
+  .models-view .provider-ops,
+  .mcp-view .server-ops,
+  .plugins-view .plugin-ops,
+  .tools-view .tool-actions {
+    width: 100%;
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+  .plugins-view .plugin-ops { align-items: center; }
+  .mail-view .connect-step { flex-wrap: wrap; }
+  .settings-view .setting-row { width: 100%; }
+
+  .tools-view .tool-advanced {
+    width: 100%;
+    overflow-x: auto;
+  }
+
+  .workflows-view .editor-section {
+    position: fixed;
+    inset: env(safe-area-inset-top) 0 env(safe-area-inset-bottom);
+    z-index: 950;
+    overflow: auto;
+    padding: 14px 12px 88px;
+    background: rgba(5, 14, 9, 0.98);
+  }
+
+  :is(.disclaimer-page, .sponsor-page) {
+    align-items: flex-start !important;
+    overflow-y: auto !important;
+    padding: max(16px, env(safe-area-inset-top)) 12px max(24px, env(safe-area-inset-bottom)) !important;
+  }
+  .disclaimer-page .disclaimer-card,
+  .sponsor-page .sponsor-card {
+    width: 100% !important;
+    max-width: 680px !important;
+    margin-inline: auto;
+  }
+
+  :is(.empty-state, .empty-hint, .n-empty, .error-hint, .plugin-error,
+      .server-error, .task-error, .error-cell, .info-text.error, .n-spin-container) {
+    width: 100%;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+}
+
+@media (max-width: 767px) and (orientation: landscape) {
+  :is(.agent-grid, .server-grid, .plugin-grid, .wf-grid, .probe-grid, .stat-grid) {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+  :is(.chat-view, .insight-view, .schedule-view, .media-view, .health-view,
+      .dashboard-view, .agents-view, .models-view, .tools-view, .mcp-view,
+      .plugins-view, .mail-view, .settings-view, .workflows-view) {
+    padding-bottom: calc(72px + env(safe-area-inset-bottom)) !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :is(.chat-view, .insight-view, .schedule-view, .media-view, .health-view,
+      .dashboard-view, .agents-view, .models-view, .tools-view, .mcp-view,
+      .plugins-view, .mail-view, .settings-view, .workflows-view,
+      .disclaimer-page, .sponsor-page) *,
+  :is(.chat-view, .insight-view, .schedule-view, .media-view, .health-view,
+      .dashboard-view, .agents-view, .models-view, .tools-view, .mcp-view,
+      .plugins-view, .mail-view, .settings-view, .workflows-view,
+      .disclaimer-page, .sponsor-page) *::before,
+  :is(.chat-view, .insight-view, .schedule-view, .media-view, .health-view,
+      .dashboard-view, .agents-view, .models-view, .tools-view, .mcp-view,
+      .plugins-view, .mail-view, .settings-view, .workflows-view,
+      .disclaimer-page, .sponsor-page) *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

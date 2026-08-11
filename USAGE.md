@@ -372,11 +372,10 @@ sudo systemctl status qq-agent
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| EMBED_API_KEY | （空） | 嵌入模型 API 密钥 |
-| EMBED_BASE_URL | （空） | 嵌入模型 API 地址 |
-| EMBED_MODEL | （空） | 嵌入模型名称 |
+| EMBED_API_KEY | （空） | SiliconFlow 嵌入模型 API 密钥 |
+| EMBED_MODEL | `BAAI/bge-m3` | SiliconFlow 嵌入模型名称 |
 
-> 不配置嵌入模型时，记忆系统仍可工作，但无法进行语义向量检索。
+> 向量检索固定使用 SiliconFlow API。不配置密钥时，文本记忆仍可工作，但语义向量检索关闭。
 
 ### 主动关怀（Nudge 引擎）
 
@@ -433,7 +432,7 @@ sudo systemctl status qq-agent
 
 **原因**：向量嵌入模型未配置。
 
-**解决**：配置 `EMBED_API_KEY`、`EMBED_BASE_URL` 和 `EMBED_MODEL`。不配置时记忆系统仍可工作，但无法进行语义检索。
+**解决**：配置 SiliconFlow 的 `EMBED_API_KEY`，并按需设置 `EMBED_MODEL`。不配置时文本记忆仍可工作，但语义向量检索关闭。
 
 ### Q: 如何修改已配置的 API 密钥？
 

@@ -38,3 +38,6 @@ class ProviderTransport(ABC):
     def is_available(self) -> bool:
         """检查 Transport 是否可用（API Key 是否配置等）"""
         ...
+
+    async def close(self) -> None:
+        return None

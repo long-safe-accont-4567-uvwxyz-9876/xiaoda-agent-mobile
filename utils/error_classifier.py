@@ -3,11 +3,13 @@
 借鉴 Hermes Agent 的错误分类机制，替代 ModelRouter 中简单的重试/降级逻辑
 """
 
-from enum import Enum
 from dataclasses import dataclass
-from loguru import logger
+from enum import Enum
 
 import openai
+from loguru import logger
+
+from core.app_exception import ProtocolError
 
 
 class FailoverReason(Enum):
@@ -93,7 +95,7 @@ class ErrorClassifier:
         """分类异常，返回 ClassifiedError"""
         reason = self._identify_reason(exc)
         action = RECOVERY_MAP[reason]
-        is_retryable = reason in RETRYABLE_REASONS
+        is_retryable = exc.retryable if isinstance(exc, ProtocolError) else reason in RETRYABLE_REASONS
         backoff = self._calc_backoff(exc, reason)
 
         classified = ClassifiedError(
@@ -122,6 +124,18 @@ class ErrorClassifier:
 
     def _identify_reason(self, exc: Exception) -> FailoverReason:
         """从异常类型、消息、状态码中识别失败原因"""
+        if isinstance(exc, ProtocolError):
+            protocol_reasons = {
+                "AUTH_FAILED": FailoverReason.AUTH_ERROR,
+                "RATE_LIMITED": FailoverReason.RATE_LIMIT,
+                "TIMEOUT": FailoverReason.TIMEOUT,
+                "DNS_FAILED": FailoverReason.CONNECTION_ERROR,
+                "TLS_FAILED": FailoverReason.CONNECTION_ERROR,
+                "CONNECTION_FAILED": FailoverReason.CONNECTION_ERROR,
+                "MODEL_NOT_FOUND": FailoverReason.MODEL_NOT_FOUND,
+                "INVALID_RESPONSE": FailoverReason.FORMAT_ERROR,
+            }
+            return protocol_reasons.get(exc.code, FailoverReason.UNKNOWN)
         # 优先匹配 openai 库的异常类型
         reason = self._match_openai_exception(exc)
         if reason is not None:

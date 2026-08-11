@@ -11,12 +11,14 @@ ROUTE_EDITABLE_FIELDS 常量抽到本模块, 该模块仅依赖 config, 不依�
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
-from loguru import logger
 
+from loguru import logger
 
 # 路由表可编辑字段 (供 web.routers.models / web.agent_registry 等使用)
 ROUTE_EDITABLE_FIELDS = {"model", "client", "max_tokens", "thinking", "timeout"}
+_PROVIDER_ID_PATTERN = re.compile(r"[A-Za-z0-9_-]+", re.ASCII)
 
 
 def _get_cred_dir() -> Path:
@@ -34,8 +36,9 @@ def _mask(key: str) -> str:
 
 def _key_file(provider_id: str) -> Path:
     """根据 provider_id 计算凭证文件路径 (过滤非法字符)."""
-    safe = "".join(c for c in provider_id if c.isalnum() or c in "-_")
-    return _get_cred_dir() / f"provider_{safe}.key"
+    if not isinstance(provider_id, str) or _PROVIDER_ID_PATTERN.fullmatch(provider_id) is None:
+        raise ValueError("provider_id must match [A-Za-z0-9_-]+")
+    return _get_cred_dir() / f"provider_{provider_id}.key"
 
 
 def _encode_key(plain: str) -> str:
@@ -66,7 +69,7 @@ def _decode_key(encoded: str) -> str | None:
     # 1. 优先尝试 credential_vault 解密（识别 enc:v1: / enc:v2:dpapi: 前缀）
     if isinstance(encoded, str) and encoded.startswith(("enc:v1:", "enc:v2:dpapi:")):
         try:
-            from security.credential_vault import decrypt, DecryptionError
+            from security.credential_vault import DecryptionError, decrypt
             try:
                 return decrypt(encoded)
             except DecryptionError:
@@ -84,12 +87,7 @@ def _decode_key(encoded: str) -> str | None:
 
 
 def load_provider_key(provider_id: str) -> str:
-    """读取 provider 凭证, 文件不存在返回空串.
-
-    自动迁移：
-    - 旧版 base64 文件首次读取后自动升级到 credential_vault 加密格式
-    - 明文 key 文件首次读取后自动加密存储（后续读取走解密流程）
-    """
+    """读取 provider 凭证, 文件不存在返回空串."""
     fp = _key_file(provider_id)
     if not fp.exists():
         return ""
@@ -98,20 +96,31 @@ def load_provider_key(provider_id: str) -> str:
         return ""
     decoded = _decode_key(raw)
     if decoded is not None:
-        try:
-            from security.credential_vault import is_encrypted
-            if not is_encrypted(raw):
-                fp.write_text(_encode_key(decoded) + "\n", encoding="utf-8")
-        except OSError:
-            pass
         return decoded
-    # 明文 key 未加密：自动加密存储，后续走解密流程
     if raw and not raw.startswith("enc:"):
-        try:
-            fp.write_text(_encode_key(raw) + "\n", encoding="utf-8")
-            return raw
-        except OSError:
-            pass
+        return raw
     from loguru import logger
     logger.warning("provider_key.unrecognized_format provider={} raw_len={}", provider_id, len(raw))
     return ""
+
+
+def migrate_provider_key(provider_id: str) -> bool:
+    from web.custom_providers import _runtime_registration_coordinator
+
+    with _runtime_registration_coordinator:
+        fp = _key_file(provider_id)
+        if not fp.exists():
+            return False
+        raw = fp.read_text(encoding="utf-8").strip()
+        if not raw:
+            return False
+        from security.credential_vault import is_encrypted
+        if is_encrypted(raw):
+            return False
+        decoded = _decode_key(raw)
+        plain = decoded if decoded is not None else raw if not raw.startswith("enc:") else ""
+        if not plain:
+            return False
+        from utils.atomic_write import atomic_write
+        atomic_write(fp, _encode_key(plain) + "\n", mode=0o600)
+        return True

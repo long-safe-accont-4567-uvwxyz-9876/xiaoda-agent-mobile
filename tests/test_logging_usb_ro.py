@@ -14,8 +14,6 @@ crash 证据 (均已早于 L6 修复, 现为回归锁定):
 """
 import sys
 from pathlib import Path
-from unittest.mock import patch
-
 import pytest
 
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -23,7 +21,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 
-def test_partial_sink_cleanup_when_second_file_sink_fails(monkeypatch):
+def test_partial_sink_cleanup_when_second_file_sink_fails(monkeypatch, tmp_path):
     """CR-FIX: 第一个文件 sink 注册成功后第二个失败，必须回滚清理第一个。"""
     import utils.logging_config as lc
 
@@ -56,7 +54,7 @@ def test_partial_sink_cleanup_when_second_file_sink_fails(monkeypatch):
 
     monkeypatch.setattr(lc.logger, "add", _tracking_add)
     monkeypatch.setattr(lc.logger, "remove", _tracking_remove)
-    monkeypatch.setattr(lc, "LOG_DIR", Path("/tmp/test_usb_ro_partial_9999"))
+    monkeypatch.setattr(lc, "LOG_DIR", tmp_path / "test_usb_ro_partial_9999")
     monkeypatch.delenv("TEST_MODE", raising=False)
 
     try:
@@ -85,7 +83,7 @@ def test_partial_sink_cleanup_when_second_file_sink_fails(monkeypatch):
     )
 
 
-def test_setup_logging_never_propagates_oserror(monkeypatch):
+def test_setup_logging_never_propagates_oserror(monkeypatch, tmp_path):
     """USB 只读: setup_logging 任何文件 sink 失败都不应传播 OSError/PermissionError。"""
     import utils.logging_config as lc
 
@@ -97,7 +95,7 @@ def test_setup_logging_never_propagates_oserror(monkeypatch):
         return original_add(sink, **kwargs)
 
     monkeypatch.setattr(lc.logger, "add", _failing_file_add)
-    monkeypatch.setattr(lc, "LOG_DIR", Path("/tmp/test_usb_ro_all_9999"))
+    monkeypatch.setattr(lc, "LOG_DIR", tmp_path / "test_usb_ro_all_9999")
     monkeypatch.delenv("TEST_MODE", raising=False)
 
     try:

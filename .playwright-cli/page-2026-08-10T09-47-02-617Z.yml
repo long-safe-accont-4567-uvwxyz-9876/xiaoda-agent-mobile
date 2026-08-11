@@ -1,0 +1,60 @@
+- generic [ref=f1e3]:
+  - generic: 本 Agent 由作者飞个人学习用途二创开发
+  - generic [ref=f1e30]:
+    - generic [ref=f1e31]:
+      - heading "个人资料" [level=1] [ref=f1e43]
+      - paragraph [ref=f1e44]: 初次见面
+      - paragraph [ref=f1e45]: vdev
+    - generic [ref=f1e46]:
+      - heading "── 用户信息 ──" [level=2] [ref=f1e47]
+      - generic [ref=f1e48]:
+        - generic [ref=f1e49]: 希望被称呼为
+        - textbox "留空则默认「朋友」" [ref=f1e50]
+      - generic [ref=f1e51]:
+        - generic [ref=f1e52]: 昵称
+        - textbox "留空则使用默认值" [ref=f1e53]
+      - generic [ref=f1e54]:
+        - generic [ref=f1e55]: 时区
+        - combobox [ref=f1e56]:
+          - option "中国标准时间 (UTC+8)" [selected]
+          - option "香港时间 (UTC+8)"
+          - option "台北时间 (UTC+8)"
+          - option "日本标准时间 (UTC+9)"
+          - option "韩国标准时间 (UTC+9)"
+          - option "新加坡时间 (UTC+8)"
+          - option "泰国时间 (UTC+7)"
+          - option "印度时间 (UTC+5:30)"
+          - option "迪拜时间 (UTC+4)"
+          - option "伦敦时间 (UTC+0)"
+          - option "巴黎时间 (UTC+1)"
+          - option "柏林时间 (UTC+1)"
+          - option "莫斯科时间 (UTC+3)"
+          - option "纽约时间 (UTC-5)"
+          - option "芝加哥时间 (UTC-6)"
+          - option "丹佛时间 (UTC-7)"
+          - option "洛杉矶时间 (UTC-8)"
+          - option "圣保罗时间 (UTC-3)"
+          - option "悉尼时间 (UTC+10)"
+          - option "奥克兰时间 (UTC+12)"
+      - heading "── 主 Agent 人格 ──" [level=2] [ref=f1e57]
+      - generic [ref=f1e58]:
+        - generic [ref=f1e59]: 偏好的助手人格
+        - textbox "如：温柔聪慧 / 活泼可爱" [ref=f1e60]: 温柔聪慧的 AI 助手
+      - generic [ref=f1e61]:
+        - generic [ref=f1e62]: 偏好语气
+        - textbox "如：温柔、软萌、清晰" [ref=f1e63]: 温柔、清晰、有条理
+      - heading "── 回复偏好 ──" [level=2] [ref=f1e64]
+      - generic [ref=f1e65]:
+        - generic [ref=f1e66]: 喜欢的回复风格
+        - textbox "如：有条理、能直接执行的方案" [ref=f1e67]: 有条理、能直接执行的方案
+      - generic [ref=f1e68]:
+        - generic [ref=f1e69]: 不喜欢的回复风格
+        - textbox "如：冷冰冰、敷衍、只有抽象建议" [ref=f1e70]: 冷冰冰、敷衍或只有抽象建议的回答
+      - heading "── 项目偏好 ──" [level=2] [ref=f1e71]
+      - generic [ref=f1e72]:
+        - generic [ref=f1e73]: 项目偏好
+        - textbox "- 修改代码前先理解现有结构" [ref=f1e74]: "- 修改代码前先理解现有结构 - 尽量不要大改项目，优先最小修改 - 优先解决实际报错 - 命令和路径要写清楚 - 遇到危险操作要提醒确认"
+      - generic [ref=f1e75]:
+        - button "跳过" [ref=f1e76]
+        - button "保存并进入" [ref=f1e77]
+      - paragraph [ref=f1e78]: 信息保存在 USER.md 中，所有选项均可留空使用默认值

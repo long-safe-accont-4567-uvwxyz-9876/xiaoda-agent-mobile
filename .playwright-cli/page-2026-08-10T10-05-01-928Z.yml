@@ -1,0 +1,52 @@
+- generic [active] [ref=f2e1]:
+  - generic [ref=f2e3]:
+    - generic: 本 Agent 由作者飞个人学习用途二创开发
+    - generic [ref=f2e7]:
+      - banner [ref=f2e1067]:
+        - button "打开全部能力" [ref=f2e1068]
+        - button "打开快捷状态" [ref=f2e1071]:
+          - strong [ref=f2e1072]: Xiaoda
+          - generic [ref=f2e1073]: 待命
+        - button "查看连接状态：重连中" [ref=f2e1074]:
+          - generic [ref=f2e1075]: ↻
+      - main [ref=f2e17]:
+        - generic [ref=f2e1185]:
+          - heading "⏰ 定时与问候" [level=2] [ref=f2e1186]
+          - generic [ref=f2e1188]:
+            - heading "总开关" [level=3] [ref=f2e1189]
+            - generic [ref=f2e1190]:
+              - generic [ref=f2e1191]:
+                - text: 主动问候
+                - switch [ref=f2e1192]
+              - generic [ref=f2e1195]:
+                - text: 每日上限 条
+                - slider [ref=f2e1199]
+              - button "💌 试发到 Web" [ref=f2e1201]
+              - button "📱 试发 QQ" [ref=f2e1203]
+              - button "💬 💬 试发微信" [ref=f2e1205]
+          - generic [ref=f2e1207]:
+            - generic [ref=f2e1208]:
+              - heading "问候计划" [level=3] [ref=f2e1209]
+              - button "＋ 新增计划" [ref=f2e1210]
+            - generic [ref=f2e1212]: 还没有计划，点「新增」让助手主动联系你～
+          - generic [ref=f2e1215]:
+            - generic [ref=f2e1216]:
+              - heading "🌙 免扰时段 期间所有主动问候静默并顺延" [level=3] [ref=f2e1217]
+              - button "＋ 加一段" [ref=f2e1218]
+            - generic [ref=f2e1220]: （无免打扰时段）
+          - generic [ref=f2e1223]:
+            - heading "近 7 天已发送" [level=3] [ref=f2e1224]
+            - generic [ref=f2e1225]: （暂无记录）
+      - navigation "主要导航" [ref=f2e1076]:
+        - link "对话" [ref=f2e1077]:
+          - /url: "#/"
+        - link "Agent 管理" [ref=f2e1082]:
+          - /url: "#/settings/agents"
+        - link "内在世界" [ref=f2e1088]:
+          - /url: "#/insight"
+        - link "Skills 工具" [ref=f2e1093]:
+          - /url: "#/settings/tools"
+        - link "系统设置" [ref=f2e1098]:
+          - /url: "#/settings/system"
+  - button "Xiaoda的虚空终端" [ref=f2e105]:
+    - generic [ref=f2e106]: ▎>_

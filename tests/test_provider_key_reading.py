@@ -11,25 +11,21 @@
 from __future__ import annotations
 
 import os
-import sys
 from pathlib import Path
 from unittest.mock import patch
-
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent
-if str(_PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(_PROJECT_ROOT))
 
 import security.credential_vault as cv
 from security.credential_vault import encrypt
 from utils.env_reader import read_env_key
-from web._provider_keys import _decode_key
+from web._provider_keys import _decode_key, load_provider_key, migrate_provider_key
 
 PLAIN = "sk-test-provider-key-1234567890"
 
 
 def test_decode_key_v1_roundtrip():
     """官方包路径：enc:v1: 密文应能解回明文。"""
-    enc = encrypt(PLAIN)
+    with patch.object(cv.sys, "platform", "linux"):
+        enc = encrypt(PLAIN)
     assert enc.startswith("enc:v1:")
     assert _decode_key(enc) == PLAIN
 
@@ -95,3 +91,22 @@ def test_read_env_key_plaintext_unchanged():
             assert read_env_key("MIMO_API_KEY") == PLAIN
     finally:
         tmp_env.unlink(missing_ok=True)
+
+
+def test_load_provider_key_has_no_migration_side_effect(tmp_path):
+    key_path = tmp_path / "provider_example.key"
+    key_path.write_text(PLAIN, encoding="utf-8")
+    with patch("web._provider_keys._get_cred_dir", return_value=tmp_path):
+        assert load_provider_key("example") == PLAIN
+    assert key_path.read_text(encoding="utf-8") == PLAIN
+
+
+def test_explicit_provider_key_migration_is_idempotent(tmp_path):
+    key_path = tmp_path / "provider_example.key"
+    key_path.write_text(PLAIN, encoding="utf-8")
+    with patch("web._provider_keys._get_cred_dir", return_value=tmp_path):
+        assert migrate_provider_key("example") is True
+        migrated = key_path.read_text(encoding="utf-8").strip()
+        assert migrate_provider_key("example") is False
+        assert load_provider_key("example") == PLAIN
+    assert migrated.startswith("enc:")

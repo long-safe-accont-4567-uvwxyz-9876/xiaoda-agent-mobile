@@ -1,0 +1,124 @@
+- generic [active] [ref=f2e1]:
+  - generic [ref=f2e3]:
+    - generic: 本 Agent 由作者飞个人学习用途二创开发
+    - generic [ref=f2e7]:
+      - navigation [ref=f2e2558]:
+        - generic [ref=f2e2559]:
+          - generic [ref=f2e2572]:
+            - link "对话" [ref=f2e2573]:
+              - /url: "#/"
+            - link "内在世界" [ref=f2e2578]:
+              - /url: "#/insight"
+            - link "定时与问候" [ref=f2e2582]:
+              - /url: "#/schedule"
+            - link "媒体工坊" [ref=f2e2586]:
+              - /url: "#/media"
+            - link "测试中心" [ref=f2e2590]:
+              - /url: "#/health"
+            - link "仪表盘" [ref=f2e2594]:
+              - /url: "#/dashboard"
+            - link "Agent 管理" [ref=f2e2598]:
+              - /url: "#/settings/agents"
+            - link "模型与凭证" [ref=f2e2602]:
+              - /url: "#/settings/models"
+            - link "Skills 工具" [ref=f2e2606]:
+              - /url: "#/settings/tools"
+            - link "MCP 服务" [ref=f2e2610]:
+              - /url: "#/settings/mcp"
+            - link "插件管理" [ref=f2e2614]:
+              - /url: "#/settings/plugins"
+            - link "邮箱管理" [ref=f2e2618]:
+              - /url: "#/settings/mail"
+            - link "系统设置" [ref=f2e2622]:
+              - /url: "#/settings/system"
+            - link "工作流" [ref=f2e2626]:
+              - /url: "#/workflows"
+            - link "免责声明" [ref=f2e2630]:
+              - /url: "#/disclaimer"
+            - link "请作者喝杯小甜水" [ref=f2e2634]:
+              - /url: "#/sponsor"
+          - link "请作者喝杯小甜水" [ref=f2e2638]:
+            - /url: "#/sponsor"
+      - banner [ref=f2e2643]:
+        - button "Xiaoda" [ref=f2e2645]
+        - generic "署名":
+          - generic: 🌿
+          - generic: 由 飞 二创开发
+        - generic [ref=f2e2649]:
+          - generic "当前情绪：平静" [ref=f2e2650]:
+            - generic [ref=f2e2651]: 🌱
+            - generic [ref=f2e2652]: 🌿
+          - generic "连接中断..." [ref=f2e2653]
+      - main [ref=f2e17]:
+        - generic [ref=f2e2971]:
+          - generic [ref=f2e2972]:
+            - heading "🧠 模型与凭证" [level=2] [ref=f2e2973]
+            - button "＋ 自定义 Provider" [ref=f2e2974]
+          - heading "Provider 列表" [level=3] [ref=f2e2978]
+          - generic [ref=f2e2980]:
+            - heading "任务路由表 改完即生效，无须重启" [level=3] [ref=f2e2981]
+            - table [ref=f2e2982]:
+              - rowgroup [ref=f2e2983]:
+                - row [ref=f2e2984]:
+                  - columnheader "任务" [ref=f2e2985]
+                  - columnheader "model" [ref=f2e2986]
+                  - columnheader "max_tokens" [ref=f2e2987]
+                  - columnheader "thinking" [ref=f2e2988]
+                  - columnheader [ref=f2e2989]
+              - rowgroup
+            - generic [ref=f2e2990]: 降级链：
+          - generic [ref=f2e2992]:
+            - heading "Temperature 调节 控制 LLM 回复的随机性，越低越确定，越高越发散" [level=3] [ref=f2e2993]:
+              - text: Temperature 调节
+              - generic [ref=f2e2994]: 控制 LLM 回复的随机性，越低越确定，越高越发散
+            - generic [ref=f2e2995]:
+              - generic [ref=f2e2996]: "0.70"
+              - slider [ref=f2e3001]
+            - generic [ref=f2e3003]:
+              - button "精准 0" [ref=f2e3004]
+              - button "保守 0.3" [ref=f2e3006]
+              - button "平衡 0.7" [ref=f2e3008]
+              - button "创意 1" [ref=f2e3010]
+              - button "狂野 1.5" [ref=f2e3012]
+          - generic [ref=f2e3015]:
+            - heading "Frequency Penalty 调节 惩罚已出现 token 的重复频率，越高越抑制套模板重复" [level=3] [ref=f2e3016]:
+              - text: Frequency Penalty 调节
+              - generic [ref=f2e3017]: 惩罚已出现 token 的重复频率，越高越抑制套模板重复
+            - generic [ref=f2e3018]:
+              - generic [ref=f2e3019]: "1.00"
+              - slider [ref=f2e3024]
+            - generic [ref=f2e3026]:
+              - button "关闭 0" [ref=f2e3027]
+              - button "轻度 0.3" [ref=f2e3029]
+              - button "标准 1" [ref=f2e3031]
+              - button "强力 1.5" [ref=f2e3033]
+              - button "极限 2" [ref=f2e3035]
+          - generic [ref=f2e3038]:
+            - heading "Presence Penalty 调节 惩罚已出现 token 的再次生成，越高越抑制条件模式重复" [level=3] [ref=f2e3039]:
+              - text: Presence Penalty 调节
+              - generic [ref=f2e3040]: 惩罚已出现 token 的再次生成，越高越抑制条件模式重复
+            - generic [ref=f2e3041]:
+              - generic [ref=f2e3042]: "1.00"
+              - slider [ref=f2e3047]
+            - generic [ref=f2e3049]:
+              - button "关闭 0" [ref=f2e3050]
+              - button "轻度 0.3" [ref=f2e3052]
+              - button "标准 1" [ref=f2e3054]
+              - button "强力 1.5" [ref=f2e3056]
+              - button "极限 2" [ref=f2e3058]
+          - generic [ref=f2e3061]:
+            - heading "凭证池状态" [level=3] [ref=f2e3062]
+            - table [ref=f2e3063]:
+              - rowgroup [ref=f2e3064]:
+                - row [ref=f2e3065]:
+                  - columnheader "provider" [ref=f2e3066]
+                  - columnheader "key" [ref=f2e3067]
+                  - columnheader "状态" [ref=f2e3068]
+                  - columnheader "使用次数" [ref=f2e3069]
+                  - columnheader "最近错误" [ref=f2e3070]
+              - rowgroup [ref=f2e3071]:
+                - row [ref=f2e3072]:
+                  - cell "（凭证池为空）" [ref=f2e3073]
+          - heading "近 7 天用量" [level=3] [ref=f2e3076]
+  - button "Xiaoda的虚空终端" [ref=f2e105]:
+    - generic [ref=f2e106]: ▎>_

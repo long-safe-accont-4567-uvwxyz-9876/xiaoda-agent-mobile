@@ -1,0 +1,9 @@
+- generic [ref=e3]:
+  - generic: 本 Agent 由小妲的老父亲-飞 个人学习用途二创开发
+  - generic [ref=e6]:
+    - generic [ref=e7]:
+      - heading "Xiaoda Agent" [level=1] [ref=e19]
+      - paragraph [ref=e20]: 小妲在此恭候
+    - generic [ref=e21]:
+      - textbox "输入访问密码…" [active] [ref=e22]
+      - button "进入世界树" [ref=e23]

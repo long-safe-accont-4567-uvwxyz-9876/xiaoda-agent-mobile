@@ -84,6 +84,32 @@ jobs:
             tests/test_circuit_breaker.py \
             -v --tb=short
 
+      - name: Run Provider tests (strict)
+        run: |
+          python -m pytest \
+            tests/test_g2_01_error_protocol.py \
+            tests/test_g2_01_provider_protocol.py \
+            tests/test_g2_02_provider_urls.py \
+            tests/test_g2_03_safe_outbound.py \
+            tests/test_g2_04_provider_application_service.py \
+            tests/test_g2_05_provider_references.py \
+            tests/test_g2_06_provider_discovery.py \
+            tests/test_g2_07_provider_diagnostics.py \
+            tests/test_g2_09_provider_ci_contract.py \
+            -v --tb=short
+
+      - name: Set up Node.js for Provider frontend gate
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Run Provider frontend tests (strict)
+        working-directory: web/frontend
+        run: |
+          npm ci
+          npm run typecheck
+          npm test -- src/components/providers/ProviderComponents.test.ts
+
       - name: Coverage summary
         if: always()
         run: |

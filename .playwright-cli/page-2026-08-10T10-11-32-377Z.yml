@@ -1,0 +1,94 @@
+- generic [active] [ref=f2e1]:
+  - generic [ref=f2e3]:
+    - generic: 本 Agent 由作者飞个人学习用途二创开发
+    - generic [ref=f2e7]:
+      - banner [ref=f2e3393]:
+        - button "打开全部能力" [ref=f2e3394]
+        - button "打开快捷状态" [ref=f2e3397]:
+          - strong [ref=f2e3398]: Xiaoda
+          - generic [ref=f2e3399]: 待命
+        - button "查看连接状态：重连中" [ref=f2e3400]:
+          - generic [ref=f2e3401]: ↻
+      - main [ref=f2e17]:
+        - generic [ref=f2e4011]:
+          - heading "⚙️ 系统设置" [level=2] [ref=f2e4012]
+          - generic [ref=f2e4013]:
+            - generic [ref=f2e4018]:
+              - generic [ref=f2e4019]: 外观与语言
+              - generic [ref=f2e4022]: 权限与工作目录
+              - generic [ref=f2e4026]: 连接与访问
+              - generic [ref=f2e4030]: API Key 配置及用户资料
+              - generic [ref=f2e4034]: 系统与日志
+            - generic [ref=f2e4040]:
+              - generic [ref=f2e4042]:
+                - heading "界面与特效" [level=3] [ref=f2e4043]
+                - generic [ref=f2e4044]:
+                  - generic [ref=f2e4045]: 草元素粒子密度
+                  - generic [ref=f2e4046]:
+                    - generic [ref=f2e4047]:
+                      - radio "关"
+                      - generic [ref=f2e4048]: 关
+                    - generic [ref=f2e4050]:
+                      - radio "低"
+                      - generic [ref=f2e4051]: 低
+                    - generic [ref=f2e4053]:
+                      - radio "中" [checked]
+                      - generic [ref=f2e4054]: 中
+                    - generic [ref=f2e4056]:
+                      - radio "高"
+                      - generic [ref=f2e4057]: 高
+                - generic [ref=f2e4058]:
+                  - generic [ref=f2e4059]: 3D 卡片交互
+                  - switch [checked] [ref=f2e4060]
+                - generic [ref=f2e4063]:
+                  - generic [ref=f2e4064]: 自动朗读回复
+                  - switch [ref=f2e4065]
+                - generic [ref=f2e4068]:
+                  - generic [ref=f2e4069]: 草元素音效
+                  - generic [ref=f2e4070]:
+                    - switch [checked] [ref=f2e4071]
+                    - slider [ref=f2e4078]
+                - paragraph [ref=f2e4080]: 叶拂（发送）、风铃（回复）、露珠（点击）、晨铃（问候），全程序化合成，不含音频文件。
+                - generic [ref=f2e4081]:
+                  - generic [ref=f2e4082]: 草元素光标
+                  - switch [checked] [ref=f2e4083]
+                - paragraph [ref=f2e4086]: 小叶片光标，悬停可点击元素时叶片舒展；触屏设备自动关闭。
+                - generic [ref=f2e4087]:
+                  - generic [ref=f2e4088]: 鼠标移动拖尾
+                  - switch [ref=f2e4089]
+                - paragraph [ref=f2e4092]: 鼠标移动时身后跟随的草粒子拖尾轨迹，默认关闭；需要时可在此开启。
+                - generic [ref=f2e4093]:
+                  - generic [ref=f2e4094]:
+                    - generic [ref=f2e4095]: 界面亮度
+                    - generic [ref=f2e4096]: 95%
+                  - generic [ref=f2e4097]:
+                    - switch [checked] [ref=f2e4098]:
+                      - generic [ref=f2e4100]:
+                        - generic [ref=f2e4101]: 自适应
+                        - generic [ref=f2e4102]: 手动
+                    - slider [disabled] [ref=f2e4107]
+                - paragraph [ref=f2e4109]: 自适应模式：白天 115% · 傍晚 95% · 夜间 70%（护眼）
+              - generic [ref=f2e4111]:
+                - heading "界面语言" [level=3] [ref=f2e4112]
+                - generic [ref=f2e4113]:
+                  - generic [ref=f2e4114]: 选择 UI 显示语言
+                  - generic [ref=f2e4115]:
+                    - generic [ref=f2e4116]:
+                      - radio "中文" [checked]
+                      - generic [ref=f2e4117]: 中文
+                    - generic [ref=f2e4119]:
+                      - radio "English"
+                      - generic [ref=f2e4120]: English
+      - navigation "主要导航" [ref=f2e3422]:
+        - link "对话" [ref=f2e3423]:
+          - /url: "#/"
+        - link "Agent 管理" [ref=f2e3429]:
+          - /url: "#/settings/agents"
+        - link "内在世界" [ref=f2e3434]:
+          - /url: "#/insight"
+        - link "Skills 工具" [ref=f2e3439]:
+          - /url: "#/settings/tools"
+        - link "系统设置" [ref=f2e3444]:
+          - /url: "#/settings/system"
+  - button "Xiaoda的虚空终端" [ref=f2e105]:
+    - generic [ref=f2e106]: ▎>_

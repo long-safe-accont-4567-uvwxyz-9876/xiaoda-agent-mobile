@@ -1,28 +1,30 @@
 """WebSocket 主通道（§9 协议）：流式状态、工具事件、最终回复、问候/任务/配置广播。"""
 from __future__ import annotations
-from typing import Any
 
 import asyncio
 import contextvars
 import json
 import os
 import platform
+import re
 import shutil
+import signal
 import struct
 import subprocess
 import threading
 import time
 import uuid
 from pathlib import Path
-
+from typing import Any
 
 from utils.common import safe_int as _safe_int
 
 _IS_WINDOWS = platform.system() == "Windows"
 
+_subprocess = subprocess
+
 if _IS_WINDOWS:
     # Windows: 使用 subprocess + 管道模拟终端
-    import subprocess as _subprocess
     _HAS_PTY = False
 else:
     import fcntl
@@ -33,9 +35,9 @@ else:
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect  # noqa: E402
 from loguru import logger  # noqa: E402
 
+from agent_core.user_web import WebUser  # noqa: E402
 from config import STREAM_STATUS_PUSH, STREAM_TEXT_PUSH, STREAM_TOOL_STATUS  # noqa: E402
 from core.event_bus import event_bus  # noqa: E402
-from agent_core.user_web import WebUser  # noqa: E402
 
 router = APIRouter()
 
@@ -261,8 +263,88 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 # PTY 终端会话: term_sid -> {pid, fd, conn_id, shell, alive}
+TERMINAL_MAX_SESSIONS_PER_CONNECTION = 3
+TERMINAL_MAX_SESSIONS_GLOBAL = 16
+TERMINAL_MAX_INPUT_BYTES = 64 * 1024
+TERMINAL_MAX_OUTPUT_CHUNK_BYTES = 64 * 1024
+TERMINAL_MIN_COLS = 20
+TERMINAL_MAX_COLS = 400
+TERMINAL_MIN_ROWS = 5
+TERMINAL_MAX_ROWS = 200
+_TERM_SID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$")
 _pty_sessions: dict[str, dict] = {}
+_pty_pending: dict[str, str] = {}
 _pty_sessions_lock = threading.Lock()
+
+
+def _reserve_terminal_session(conn_id: str, term_sid: str) -> str | None:
+    """Atomically reserve a terminal id and enforce concurrency limits."""
+    if not _TERM_SID_RE.fullmatch(term_sid):
+        return "INVALID_TERM_SID"
+    with _pty_sessions_lock:
+        if term_sid in _pty_sessions or term_sid in _pty_pending:
+            return "DUPLICATE_TERM_SID"
+        owned = sum(
+            1 for session in _pty_sessions.values()
+            if session.get("conn_id") == conn_id and session.get("alive")
+        ) + sum(1 for owner in _pty_pending.values() if owner == conn_id)
+        if owned >= TERMINAL_MAX_SESSIONS_PER_CONNECTION:
+            return "TERMINAL_SESSION_LIMIT"
+        if len(_pty_sessions) + len(_pty_pending) >= TERMINAL_MAX_SESSIONS_GLOBAL:
+            return "TERMINAL_GLOBAL_LIMIT"
+        _pty_pending[term_sid] = conn_id
+    return None
+
+
+def _release_terminal_reservation(term_sid: str) -> None:
+    with _pty_sessions_lock:
+        _pty_pending.pop(term_sid, None)
+
+
+def _commit_terminal_session(conn_id: str, term_sid: str, session: dict) -> bool:
+    with _pty_sessions_lock:
+        if _pty_pending.get(term_sid) != conn_id:
+            return False
+        _pty_pending.pop(term_sid, None)
+        _pty_sessions[term_sid] = session
+    return True
+
+
+def _cleanup_terminal_connection(conn_id: str) -> None:
+    with _pty_sessions_lock:
+        session_ids = [
+            term_sid for term_sid, session in _pty_sessions.items()
+            if session.get("conn_id") == conn_id
+        ]
+        pending_ids = [
+            term_sid for term_sid, owner in _pty_pending.items()
+            if owner == conn_id
+        ]
+        for term_sid in pending_ids:
+            _pty_pending.pop(term_sid, None)
+    for term_sid in session_ids:
+        _cleanup_pty(term_sid)
+
+
+async def _cleanup_terminal_connection_async(conn_id: str) -> None:
+    with _pty_sessions_lock:
+        session_ids = [
+            term_sid for term_sid, session in _pty_sessions.items()
+            if session.get("conn_id") == conn_id
+        ]
+        pending_ids = [
+            term_sid for term_sid, owner in _pty_pending.items()
+            if owner == conn_id
+        ]
+        for term_sid in pending_ids:
+            _pty_pending.pop(term_sid, None)
+    await asyncio.gather(*(_cleanup_pty_async(term_sid) for term_sid in session_ids))
+
+
+def _clamp_terminal_size(msg: dict) -> tuple[int, int]:
+    cols = max(TERMINAL_MIN_COLS, min(TERMINAL_MAX_COLS, _safe_int(msg.get("cols"), 80)))
+    rows = max(TERMINAL_MIN_ROWS, min(TERMINAL_MAX_ROWS, _safe_int(msg.get("rows"), 24)))
+    return cols, rows
 
 
 # ── 媒体路径 → URL ───────────────────────────────────────────────
@@ -451,6 +533,7 @@ async def process_and_serialize(core: Any, text: str, session_id: str,
         else:
             # 走与 QQ 通道相同的完整子代理流程：表情包/情绪/TTS/落库都不缺
             from loguru import logger as _logger
+
             from agent_core import RequestContext
             from utils.trace_context import new_trace_id
             # 身份解析：与 core.process() 主路径一致，确保 is_master/user_openid 语义正确
@@ -581,13 +664,13 @@ async def websocket_endpoint(ws: WebSocket, token: str = "") -> None:
                 _t.add_done_callback(_on_term_start_done)
 
             elif mtype == "terminal_input":
-                _handle_terminal_input(conn_id, msg)
+                await _handle_terminal_input(conn_id, msg)
 
             elif mtype == "terminal_resize":
                 _handle_terminal_resize(conn_id, msg)
 
             elif mtype == "terminal_kill":
-                _handle_terminal_kill(conn_id, msg)
+                await _handle_terminal_kill(conn_id, msg)
 
             elif mtype == "abort":
                 task = manager._tasks.get(str(msg.get("msg_id") or ""))
@@ -599,14 +682,7 @@ async def websocket_endpoint(ws: WebSocket, token: str = "") -> None:
     except (RuntimeError, OSError, asyncio.CancelledError, KeyError, TypeError) as e:
         logger.error("ws.error conn_id={} error={}", conn_id, str(e))
     finally:
-        # 清理该连接的所有终端会话
-        with _pty_sessions_lock:
-            sids = list(_pty_sessions.keys())
-        for sid in sids:
-            with _pty_sessions_lock:
-                sid_session = _pty_sessions.get(sid)
-            if sid_session and sid_session.get("conn_id") == conn_id:
-                _cleanup_pty(sid)
+        await _cleanup_terminal_connection_async(conn_id)
         await manager.unregister(conn_id)
 
 
@@ -679,6 +755,7 @@ async def _handle_chat(conn_id: str, msg: dict, msg_id: str, ws: WebSocket) -> N
 
     if image_urls:
         from pathlib import Path as _Path
+
         from utils.text_utils import encode_image_to_base64
         image_data = []
         for url in image_urls:
@@ -784,98 +861,85 @@ async def _handle_chat(conn_id: str, msg: dict, msg_id: str, ws: WebSocket) -> N
 
 
 async def _handle_terminal_start(conn_id: str, msg: dict, term_sid: str) -> None:
-    """启动一个终端会话：Linux 用 PTY，Windows 用 subprocess 管道。
+    """Start one owned terminal session after validating id, shell, size and limits."""
+    error_code = _reserve_terminal_session(conn_id, term_sid)
+    if error_code:
+        await manager.send_to(conn_id, {
+            "type": "terminal_error", "term_sid": term_sid, "code": error_code,
+            "error": "Terminal session id is invalid or the session limit was reached",
+        })
+        return
 
-    msg 字段：
-      shell    — Shell 类型 (bash/zsh/python/node/cmd/powershell/wsl)，默认 bash
-      cols     — 终端列数
-      rows     — 终端行数
-    """
-    shell_type = (msg.get("shell") or "bash").strip().lower()
-    cols = int(msg.get("cols") or 80)
-    rows = int(msg.get("rows") or 24)
-
+    shell_type = str(msg.get("shell") or "bash").strip().lower()
+    cols, rows = _clamp_terminal_size(msg)
     env = os.environ.copy()
     env["TERM"] = "xterm-256color"
+    shell_map_posix = {"bash": "bash", "zsh": "zsh", "python": "python3", "node": "node"}
+    shell_map_win = {
+        "cmd": ["cmd.exe"], "powershell": ["powershell.exe", "-NoLogo"],
+        "pwsh": ["pwsh.exe", "-NoLogo"], "python": ["python.exe"],
+        "node": ["node.exe"], "wsl": ["wsl.exe"], "bash": ["bash.exe"],
+    }
+    allowed_shells = shell_map_posix if _HAS_PTY else shell_map_win
+    if shell_type not in allowed_shells:
+        _release_terminal_reservation(term_sid)
+        await manager.send_to(conn_id, {
+            "type": "terminal_error", "term_sid": term_sid,
+            "code": "INVALID_SHELL", "error": "Unsupported terminal shell",
+        })
+        return
 
-    if _HAS_PTY:
-        # ── Linux / macOS: PTY 方式 ──
-        shell_map = {
-            "bash": "bash", "zsh": "zsh",
-            "python": "python3", "node": "node",
-        }
-        shell_cmd = shell_map.get(shell_type, "bash")
-        env["SHELL"] = shell_cmd
-        loop = asyncio.get_running_loop()
-
-        try:
+    loop = asyncio.get_running_loop()
+    await asyncio.sleep(0)
+    committed = False
+    try:
+        if _HAS_PTY:
+            shell_cmd = shell_map_posix[shell_type]
+            env["SHELL"] = shell_cmd
             child_pid, master_fd = pty.fork()
             if child_pid == 0:
-                # ── 子进程 ──
                 os.chdir(str(Path.home()))
                 winsize = struct.pack("HHHH", rows, cols, 0, 0)
                 fcntl.ioctl(0, termios.TIOCSWINSZ, winsize)
                 os.execvpe(shell_cmd, [shell_cmd], env)
-            else:
-                with _pty_sessions_lock:
-                    _pty_sessions[term_sid] = {
-                        "pid": child_pid, "fd": master_fd, "conn_id": conn_id,
-                        "shell": shell_type, "alive": True, "loop": loop,
-                        "is_windows": False,
-                    }
-                logger.info("ws.terminal.start term_sid={} shell={} pid={}", term_sid, shell_type, child_pid)
-                await manager.send_to(conn_id, {
-                    "type": "terminal_started", "term_sid": term_sid, "shell": shell_type})
-                _setup_pty_reader(term_sid)
-
-        except (OSError, RuntimeError, ValueError) as e:
-            logger.error("ws.terminal.start.failed term_sid={} error={}", term_sid, str(e))
-            await manager.send_to(conn_id, {
-                "type": "terminal_error", "term_sid": term_sid,
-                "error": str(e)[:200]})
-    else:
-        # ── Windows: subprocess + 管道 ──
-        shell_map_win = {
-            "cmd": ["cmd.exe"],
-            "powershell": ["powershell.exe", "-NoLogo"],
-            "pwsh": ["pwsh.exe", "-NoLogo"],
-            "python": ["python.exe"],
-            "node": ["node.exe"],
-            "wsl": ["wsl.exe"],
-            "bash": ["bash.exe"],
-        }
-        cmd = shell_map_win.get(shell_type, ["cmd.exe"])
-        loop = asyncio.get_running_loop()
-
-        try:
+            session = {
+                "pid": child_pid, "fd": master_fd, "conn_id": conn_id,
+                "shell": shell_type, "alive": True, "loop": loop, "is_windows": False,
+                "pgid": child_pid,
+            }
+        else:
             proc = _subprocess.Popen(
-                cmd,
-                stdin=_subprocess.PIPE,
-                stdout=_subprocess.PIPE,
-                stderr=_subprocess.STDOUT,
-                bufsize=0,
-                env=env,
-                cwd=str(Path.home()),
+                shell_map_win[shell_type], stdin=_subprocess.PIPE, stdout=_subprocess.PIPE,
+                stderr=_subprocess.STDOUT, bufsize=0, env=env, cwd=str(Path.home()),
                 creationflags=_subprocess.CREATE_NEW_PROCESS_GROUP
                     if hasattr(_subprocess, "CREATE_NEW_PROCESS_GROUP") else 0,
             )
-            with _pty_sessions_lock:
-                _pty_sessions[term_sid] = {
-                    "pid": proc.pid, "proc": proc, "conn_id": conn_id,
-                    "shell": shell_type, "alive": True, "loop": loop,
-                    "is_windows": True,
-                }
-            logger.info("ws.terminal.start term_sid={} shell={} pid={}", term_sid, shell_type, proc.pid)
-            await manager.send_to(conn_id, {
-                "type": "terminal_started", "term_sid": term_sid, "shell": shell_type})
+            session = {
+                "pid": proc.pid, "proc": proc, "conn_id": conn_id,
+                "shell": shell_type, "alive": True, "loop": loop, "is_windows": True,
+            }
+
+        if not _commit_terminal_session(conn_id, term_sid, session):
+            await asyncio.to_thread(_terminate_process_tree, session)
+            return
+        committed = True
+        logger.info("ws.terminal.start term_sid={} shell={} pid={}", term_sid, shell_type, session["pid"])
+        await manager.send_to(conn_id, {
+            "type": "terminal_started", "term_sid": term_sid, "shell": shell_type,
+        })
+        if _HAS_PTY:
+            _setup_pty_reader(term_sid)
+        else:
             _setup_win_pipe_reader(term_sid)
-
-        except (OSError, RuntimeError, ValueError) as e:
-            logger.error("ws.terminal.start.failed term_sid={} error={}", term_sid, str(e))
-            await manager.send_to(conn_id, {
-                "type": "terminal_error", "term_sid": term_sid,
-                "error": str(e)[:200]})
-
+    except (OSError, RuntimeError, ValueError) as exc:
+        _release_terminal_reservation(term_sid)
+        if committed:
+            await _cleanup_pty_async(term_sid)
+        logger.error("ws.terminal.start.failed term_sid={} error={}", term_sid, str(exc))
+        await manager.send_to(conn_id, {
+            "type": "terminal_error", "term_sid": term_sid,
+            "code": "TERMINAL_START_FAILED", "error": str(exc)[:200],
+        })
 
 def _setup_pty_reader(term_sid: str) -> None:
     """用 loop.add_reader() 注册 PTY fd 的可读回调。"""
@@ -890,13 +954,13 @@ def _setup_pty_reader(term_sid: str) -> None:
     def _on_pty_readable() -> None:
         """当 PTY master fd 有数据可读时被调用。"""
         try:
-            data = os.read(fd, 8192)
+            data = os.read(fd, min(8192, TERMINAL_MAX_OUTPUT_CHUNK_BYTES))
         except OSError:
-            _cleanup_pty(term_sid)
+            asyncio.create_task(_cleanup_pty_async(term_sid))
             return
 
         if not data:
-            _cleanup_pty(term_sid)
+            asyncio.create_task(_cleanup_pty_async(term_sid))
             return
 
         text = data.decode("utf-8", errors="replace")
@@ -929,7 +993,7 @@ def _setup_win_pipe_reader(term_sid: str) -> None:
         """后台线程：阻塞读取 stdout，推送到 event loop。"""
         try:
             while True:
-                data = proc.stdout.read(4096)
+                data = proc.stdout.read(min(4096, TERMINAL_MAX_OUTPUT_CHUNK_BYTES))
                 if not data:
                     break
                 text = data.decode("utf-8", errors="replace")
@@ -945,11 +1009,84 @@ def _setup_win_pipe_reader(term_sid: str) -> None:
         except (OSError, RuntimeError):
             logger.debug("ws.win_pipe_reader_error term_sid={}", term_sid, exc_info=True)
         finally:
-            loop.call_soon_threadsafe(_cleanup_pty, term_sid)
+            loop.call_soon_threadsafe(
+                lambda: asyncio.create_task(_cleanup_pty_async(term_sid)))
 
     import threading
     t = threading.Thread(target=_reader_thread, daemon=True)
     t.start()
+
+
+def _terminate_windows_process_tree(pid: int) -> int:
+    startupinfo = None
+    if hasattr(_subprocess, "STARTUPINFO"):
+        startupinfo = _subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= getattr(_subprocess, "STARTF_USESHOWWINDOW", 0)
+    result = _subprocess.run(
+        ["taskkill", "/PID", str(pid), "/T", "/F"],
+        stdout=_subprocess.DEVNULL,
+        stderr=_subprocess.DEVNULL,
+        check=False,
+        timeout=5,
+        startupinfo=startupinfo,
+    )
+    return result.returncode
+
+
+def _terminate_process_tree(session: dict) -> int:
+    """Terminate the complete terminal process tree, not only the shell parent."""
+    pid = int(session.get("pid") or 0)
+    proc = session.get("proc")
+    if pid <= 0:
+        return -1
+    if session.get("is_windows"):
+        try:
+            taskkill_rc = _terminate_windows_process_tree(pid)
+            if taskkill_rc != 0:
+                if proc:
+                    proc.kill()
+                return -1
+            if proc:
+                try:
+                    return proc.wait(timeout=1)
+                except (OSError, TimeoutError, subprocess.TimeoutExpired):
+                    proc.kill()
+                    return proc.wait(timeout=1)
+            return 0
+        except (OSError, RuntimeError, subprocess.SubprocessError):
+            logger.debug("ws.process_tree_terminate_fallback", exc_info=True)
+            if proc:
+                try:
+                    proc.terminate()
+                    return proc.wait(timeout=2)
+                except (OSError, subprocess.TimeoutExpired):
+                    try:
+                        proc.kill()
+                    except (OSError, PermissionError):
+                        logger.debug("ws.process_kill_error", exc_info=True)
+            return -1
+    try:
+        os.killpg(int(session.get("pgid") or pid), signal.SIGTERM)
+    except (OSError, ProcessLookupError):
+        pass
+    deadline = time.monotonic() + 1.5
+    while time.monotonic() < deadline:
+        try:
+            waited, status = os.waitpid(pid, os.WNOHANG)
+        except (OSError, ChildProcessError):
+            return -1
+        if waited:
+            return os.WEXITSTATUS(status) if os.WIFEXITED(status) else -1
+        time.sleep(0.05)
+    try:
+        os.killpg(int(session.get("pgid") or pid), signal.SIGKILL)
+    except (OSError, ProcessLookupError):
+        pass
+    try:
+        _, status = os.waitpid(pid, 0)
+        return os.WEXITSTATUS(status) if os.WIFEXITED(status) else -1
+    except (OSError, ChildProcessError):
+        return -1
 
 
 def _cleanup_pty(term_sid: str) -> None:
@@ -963,34 +1100,14 @@ def _cleanup_pty(term_sid: str) -> None:
     loop: asyncio.AbstractEventLoop = session["loop"]
     is_win = session.get("is_windows", False)
 
-    if is_win:
-        # ── Windows: 关闭 subprocess ──
-        proc = session.get("proc")
-        rc = -1
-        if proc:
-            try:
-                proc.terminate()
-                rc = proc.wait(timeout=3)
-            except (OSError, subprocess.TimeoutExpired):
-                logger.debug("ws.process_terminate_error", exc_info=True)
-                try:
-                    proc.kill()
-                except (OSError, PermissionError):
-                    logger.debug("ws.process_kill_error", exc_info=True)
-                rc = -1
-    else:
-        # ── Unix: 关闭 PTY fd + 等待子进程 ──
+    if not is_win:
         fd = session["fd"]
         try:
             loop.remove_reader(fd)
         except (OSError, ValueError):
             logger.debug("ws.remove_reader_error", exc_info=True)
-        try:
-            _, status = os.waitpid(session["pid"], os.WNOHANG)
-            rc = os.WEXITSTATUS(status) if os.WIFEXITED(status) else -1
-        except (OSError, ChildProcessError):
-            logger.debug("ws.waitpid_error", exc_info=True)
-            rc = -1
+    rc = _terminate_process_tree(session)
+    if not is_win:
         try:
             os.close(fd)
         except OSError:
@@ -1007,10 +1124,43 @@ def _cleanup_pty(term_sid: str) -> None:
     logger.info("ws.terminal.exit term_sid={} rc={}", term_sid, rc)
 
 
-def _handle_terminal_input(conn_id: str, msg: dict) -> None:
+async def _cleanup_pty_async(term_sid: str) -> None:
+    with _pty_sessions_lock:
+        session = _pty_sessions.pop(term_sid, None)
+    if not session:
+        return
+    session["alive"] = False
+    conn_id = session["conn_id"]
+    loop: asyncio.AbstractEventLoop = session["loop"]
+    is_win = session.get("is_windows", False)
+    if not is_win:
+        fd = session["fd"]
+        try:
+            loop.remove_reader(fd)
+        except (OSError, ValueError):
+            logger.debug("ws.remove_reader_error", exc_info=True)
+    rc = await asyncio.to_thread(_terminate_process_tree, session)
+    if not is_win:
+        try:
+            os.close(fd)
+        except OSError:
+            logger.debug("ws.close_fd_error", exc_info=True)
+    await manager.send_to(conn_id, {
+        "type": "terminal_exit", "term_sid": term_sid, "returncode": rc,
+    })
+    logger.info("ws.terminal.exit term_sid={} rc={}", term_sid, rc)
+
+
+async def _handle_terminal_input(conn_id: str, msg: dict) -> None:
     """将用户输入写入终端 stdin。"""
     term_sid = str(msg.get("term_sid") or "")
     data = msg.get("data", "")
+    if not isinstance(data, str):
+        return
+    encoded = data.encode("utf-8", errors="replace")
+    if len(encoded) > TERMINAL_MAX_INPUT_BYTES:
+        logger.warning("ws.terminal_input.too_large conn_id={} bytes={}", conn_id, len(encoded))
+        return
     with _pty_sessions_lock:
         session = _pty_sessions.get(term_sid)
         if not session or not session["alive"]:
@@ -1023,12 +1173,15 @@ def _handle_terminal_input(conn_id: str, msg: dict) -> None:
         proc = session.get("proc")
         fd = session.get("fd")
     try:
-        if is_windows:
-            if proc and proc.stdin:
-                proc.stdin.write(data.encode("utf-8", errors="replace"))
-                proc.stdin.flush()
-        else:
-            os.write(fd, data.encode("utf-8", errors="replace"))
+        def _write() -> None:
+            if is_windows:
+                if proc and proc.stdin:
+                    proc.stdin.write(encoded)
+                    proc.stdin.flush()
+            else:
+                os.write(fd, encoded)
+
+        await asyncio.to_thread(_write)
     except (OSError, BrokenPipeError):
         pass
 
@@ -1036,8 +1189,7 @@ def _handle_terminal_input(conn_id: str, msg: dict) -> None:
 def _handle_terminal_resize(conn_id: str, msg: dict) -> None:
     """调整终端窗口大小。"""
     term_sid = str(msg.get("term_sid") or "")
-    cols = int(msg.get("cols") or 80)
-    rows = int(msg.get("rows") or 24)
+    cols, rows = _clamp_terminal_size(msg)
     with _pty_sessions_lock:
         session = _pty_sessions.get(term_sid)
         if not session or not session["alive"]:
@@ -1055,15 +1207,22 @@ def _handle_terminal_resize(conn_id: str, msg: dict) -> None:
         pass
 
 
-def _handle_terminal_kill(conn_id: str, msg: dict) -> None:
+async def _handle_terminal_kill(conn_id: str, msg: dict) -> None:
     """终止终端会话 (复用 _cleanup_pty 确保前端收到 terminal_exit)."""
     term_sid = str(msg.get("term_sid") or "")
     with _pty_sessions_lock:
+        pending_owner = _pty_pending.get(term_sid)
+        if pending_owner:
+            if pending_owner != conn_id:
+                logger.warning("ws.terminal_kill.denied conn_id={} owner={}", conn_id, pending_owner)
+                return
+            _pty_pending.pop(term_sid, None)
+            return
         session = _pty_sessions.get(term_sid)
         if not session:
             return
         if session.get("conn_id") != conn_id:
             logger.warning("ws.terminal_kill.denied conn_id={} owner={}", conn_id, session.get("conn_id"))
             return
-    _cleanup_pty(term_sid)
+    await _cleanup_pty_async(term_sid)
     logger.info("ws.terminal.kill term_sid={}", term_sid)

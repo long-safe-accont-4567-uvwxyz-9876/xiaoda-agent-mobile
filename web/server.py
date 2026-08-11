@@ -17,6 +17,16 @@ from core.app_exception import LLMError
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 
+def _run_startup_config_migrations() -> None:
+    from config import get_config_dir, get_credentials_dir
+    from web.config_migrations import migrate_retired_local_ai_config
+
+    migrate_retired_local_ai_config(
+        get_config_dir() / "webui_overrides.json",
+        get_credentials_dir(),
+    )
+
+
 async def _apply_model_overrides(core: Any) -> None:
     """重启后恢复：自定义 provider 注册 + 路由表覆盖。"""
     import os
@@ -60,30 +70,13 @@ def _register_env_providers(cfg: Any, env_values: Any, os_module: Any) -> None:
             # 与 _register_env_providers 的 env_values 来源一致；env_values 未设时回退默认值
             (env_values.get("AGNES_BASE_URL") or "https://apihub.agnes-ai.cn/v1").strip(), "Agnes AI"
         ),
-        # P0 修复（硬编码/ollama 默认启用根因）：
-        # 原实现 _default_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
-        # 总是返回非空值（env 未设也回退到 localhost:11434），导致 ollama 永远被注册，
-        # 即使用户没配置也会尝试连接 → 持续报错（日志中 custom_provider.registered id=ollama）。
-        # 修复：ollama 的 _default_url 设为空串，仅当 env_values（.env）显式配置时才注册。
-        # 其他 provider 的 _default_url 是 SaaS 云端固定端点（非用户自定义），保留默认值正确。
-        "OLLAMA_BASE_URL": (
-            "ollama", "openai",
-            "", "Ollama 本地大模型"
-        ),
     }
     known_env_keys = list(_KNOWN_ENV_PROVIDERS.keys())
     for env_key, (pid, fmt, _default_url, label) in _KNOWN_ENV_PROVIDERS.items():
-        if env_key == "OLLAMA_BASE_URL":
-            # ollama：仅当 .env 显式配置 OLLAMA_BASE_URL 时才注册（_default_url 为空串）
-            api_key = "ollama"
-            base_url = env_values.get(env_key, "").strip()
-            if not base_url:
-                continue
-        else:
-            api_key = env_values.get(env_key, "").strip()
-            base_url = _default_url
-            if not api_key:
-                continue
+        api_key = env_values.get(env_key, "").strip()
+        base_url = _default_url
+        if not api_key:
+            continue
         existing = cfg.get("models.providers", {}) or {}
         if pid not in existing:
             cfg.set(f"models.providers.{pid}", {
@@ -119,33 +112,32 @@ def _provider_sort_key(kv: tuple, key_order: list[str]) -> tuple[int, int]:
 
 def _register_all_providers(cfg: Any, core: Any, load_provider_key: Any, register_into_router: Any) -> None:
     """按 order 字段排序后注册所有 provider 到 router 和 credential_pool。"""
-    all_providers = cfg.get("models.providers", {}) or {}
-    all_keys_order = list(all_providers.keys())
-    sorted_providers = sorted(
-        all_providers.items(),
-        key=lambda kv: _provider_sort_key(kv, all_keys_order)
-    )
-    for pid, p in sorted_providers:
-        # P0 修复（ollama 默认启用根因 2/2）：
-        # 即使旧版本 bug 已把 ollama 写入持久化 config（base_url=localhost:11434），
-        # 这里也要拦住：ollama 是本地服务，必须 OLLAMA_BASE_URL 环境变量显式配置才注册。
-        # 云端 provider（siliconflow/openrouter 等）不受此约束 —— 它们的 URL 是固定的 SaaS 端点。
-        if pid == "ollama" and not os.getenv("OLLAMA_BASE_URL", "").strip():
-            logger.info("webui.skip_ollama_no_env reason=OLLAMA_BASE_URL not set, skipping stale config entry")
-            continue
-        key = load_provider_key(pid)
-        if key and p.get("enabled", True):
-            try:
-                register_into_router(core.router, pid, p.get("format", "openai"),
-                                     p.get("base_url", ""), key)
-                from utils.credential_pool import Credential, get_credential_pool
-                pool = get_credential_pool()
-                if pid not in pool._pool:
-                    pool.add_credential(Credential(
-                        api_key=key, provider=pid, base_url=p.get("base_url", ""),
-                    ))
-            except (ImportError, KeyError, ValueError, OSError) as e:
-                logger.warning("webui.provider_restore_failed id={} error={}", pid, str(e))
+    from core.app_exception import ProtocolError
+    from web.config_migrations import RETIRED_PROVIDER_ID
+    from web.custom_providers import _runtime_registration_coordinator
+    with _runtime_registration_coordinator:
+        all_providers = cfg.get("models.providers", {}) or {}
+        all_keys_order = list(all_providers.keys())
+        sorted_providers = sorted(
+            all_providers.items(),
+            key=lambda kv: _provider_sort_key(kv, all_keys_order)
+        )
+        for pid, p in sorted_providers:
+            if pid == RETIRED_PROVIDER_ID:
+                continue
+            key = load_provider_key(pid)
+            if key and p.get("enabled", True):
+                try:
+                    register_into_router(core.router, pid, p.get("format", "openai"),
+                                         p.get("base_url", ""), key)
+                    from utils.credential_pool import Credential, get_credential_pool
+                    pool = get_credential_pool()
+                    if pid not in pool._pool:
+                        pool.add_credential(Credential(
+                            api_key=key, provider=pid, base_url=p.get("base_url", ""),
+                        ))
+                except (ImportError, KeyError, ValueError, OSError, ProtocolError) as e:
+                    logger.warning("webui.provider_restore_failed id={} error={}", pid, str(e))
 
 
 def _apply_route_overrides(cfg: Any, core: Any, ROUTE_TABLE: Any) -> None:
@@ -710,27 +702,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[Any]:
                         logger.info("constraint.prewarm_done")
                     except Exception as _e:
                         logger.debug("constraint.prewarm_failed: {}", _e)
-                # 预热本地 CPU embedding provider。
-                # 根因：embed.prewarm_done 只预热了远程 siliconflow 的 HTTP 连接，
-                #   本地 provider 从未 load()。首条消息
-                #   QueryCache.get → vec.embed → encode_batch 首次触发 load()：
-                #   tokenizer + onnxruntime session 初始化耗时可能导致检索超时，
-                #   全链路 31.7s 阻塞（日志铁证 16:23:03→09 空白）。
-                #   启动时后台预热，首条消息 embed <10ms。
-                async def _warm_local_embed():
-                    try:
-                        _vec = getattr(getattr(core, "memory", None), "vec", None)
-                        if _vec is None or getattr(_vec, "_embed_mode", "") != "local":
-                            return
-                        status = await _aio.to_thread(_vec.start_local_engine)
-                        if status.get("engine_running"):
-                            logger.info("local_embed.prewarm_done")
-                        else:
-                            logger.debug("local_embed.prewarm_not_ready status={}", status)
-                    except Exception as _e:
-                        logger.debug("local_embed.prewarm_failed: {}", _e)
-                await _aio.gather(_warm_xp(), _warm_mental(), _warm_constraint(),
-                                  _warm_local_embed())
+                await _aio.gather(_warm_xp(), _warm_mental(), _warm_constraint())
             # fire-and-forget：不阻塞服务启动，单例后台预热到内存
             # message_processor.py 的 fire-and-forget 已兜底，即使预热未完成主流程也不阻塞
             # 同类副作用修复：用 _spawn 跟踪，避免任务被 GC 回收导致预热丢失
@@ -775,7 +747,10 @@ async def _init_lifespan_resources(app: FastAPI) -> tuple[Any, bool]:
         await core.init()
     app.state.core = core
 
-    get_config_service()  # 触发加载 overrides
+    _run_startup_config_migrations()
+    config_service = get_config_service()
+    from web.routers.models import get_provider_application_service
+    get_provider_application_service(app, config_service)
 
     registry = AgentRegistry(core)
     await registry.load_persisted()
@@ -846,22 +821,10 @@ def _has_any_provider_credential() -> bool:
         from web.config_service import get_config_service
         cfg = get_config_service()
         for pid in (cfg.get("models.providers", {}) or {}):
-            if pid == "ollama":
-                # ollama 不需要 API key，由下方第 4 步检查 OLLAMA_BASE_URL
-                continue
             if load_provider_key(pid).strip():
                 return True
     except (ImportError, OSError, ValueError) as e:
         logger.warning("webui.custom_provider_credential_check_failed error={}", str(e))
-
-    # 4. Ollama：不需要 API key，仅看 .env 是否显式配置 OLLAMA_BASE_URL
-    #    （与 _apply_model_overrides 的注册条件一致，Ollama-only 部署不误入降级模式）
-    try:
-        from setup_wizard import _load_env_values
-        if _load_env_values().get("OLLAMA_BASE_URL", "").strip():
-            return True
-    except (ImportError, OSError, ValueError):
-        logger.debug("server.ollama_url_check_failed", exc_info=True)
 
     return False
 
@@ -939,7 +902,7 @@ def create_app() -> FastAPI:
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
-        expose_headers=["X-New-Token", "X-New-Token-Expiry"],
+        expose_headers=["X-New-Token", "X-New-Token-Expiry", "X-WebView-Session-Expiry"],
     )
 
     # 速率限制中间件（三级: 全局/用户/写端点, 防 DDoS/滥用）
@@ -988,6 +951,19 @@ def create_app() -> FastAPI:
             new_expiry = getattr(request.state, "new_expiry", 0)
             if new_expiry:
                 response.headers["X-New-Token-Expiry"] = str(int(new_expiry))
+        webview_session_handle = getattr(request.state, "webview_session_handle", None)
+        if webview_session_handle:
+            from web.routers.auth import WEBVIEW_SESSION_COOKIE_MAX_AGE, WEBVIEW_SESSION_COOKIE_NAME, WEBVIEW_SESSION_COOKIE_SAMESITE
+            response.set_cookie(
+                WEBVIEW_SESSION_COOKIE_NAME,
+                webview_session_handle,
+                max_age=WEBVIEW_SESSION_COOKIE_MAX_AGE,
+                httponly=True,
+                secure=True,
+                samesite=WEBVIEW_SESSION_COOKIE_SAMESITE,
+                path="/",
+            )
+            response.headers["X-WebView-Session-Expiry"] = str(int(getattr(request.state, "webview_session_expiry", 0)))
         return response
 
     # Q1: 注册统一异常处理器（AppException -> 结构化 error_code; 未捕获异常 -> E_SYS999）
@@ -999,7 +975,6 @@ def create_app() -> FastAPI:
     from web.routers.chat import router as chat_router
     from web.routers.health import router as health_router
     from web.routers.insight import router as insight_router
-    from web.routers.local_deploy import router as local_deploy_router
     from web.routers.mail_manage import router as mail_manage_router
     from web.routers.market import router as market_router
     from web.routers.mcp import router as mcp_router
@@ -1022,7 +997,7 @@ def create_app() -> FastAPI:
               schedule_router, media_router, health_router, plugins_router,
               setup_router, model_discovery_router, market_router,
               mail_manage_router, workflows_router, workspace_router,
-              wechat_router, local_deploy_router,
+              wechat_router,
               system_public_router, wechat_public_router):
         app.include_router(r, prefix="/api/v1")
 

@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
-import SideBar from './SideBar.vue'
-import TopBar from './TopBar.vue'
+import { onBeforeUnmount, onMounted } from 'vue'
 import AgentBackdrop from './AgentBackdrop.vue'
+import ResponsiveShell from './ResponsiveShell.vue'
+import { useResponsiveShell } from '../../composables/useResponsiveShell'
 import { useAuthStore } from '../../stores/auth'
 import { useAgentsStore } from '../../stores/agents'
 import { useUiStore } from '../../stores/ui'
@@ -13,7 +13,7 @@ const auth = useAuthStore()
 const agentsStore = useAgentsStore()
 const ui = useUiStore()
 const router = useRouter()
-const sidebarExpanded = ref(false)
+const { isMobile } = useResponsiveShell()
 
 if (!auth.isLoggedIn) {
   router.replace('/login')
@@ -25,17 +25,26 @@ if (!auth.isLoggedIn) {
     }
     agentsStore.load().catch(() => {})
     ui.loadRemote()
+    window.addEventListener('xiaoda:connection-policy', onConnectionPolicy)
   })
+  onBeforeUnmount(() => window.removeEventListener('xiaoda:connection-policy', onConnectionPolicy))
+}
+
+function onConnectionPolicy(event: Event) {
+  const connect = (event as CustomEvent<{ connect?: boolean }>).detail?.connect === true
+  const ws = getWsClient()
+  if (connect) {
+    if (!ws.connected && auth.token) ws.connect()
+  } else {
+    ws.disconnect()
+  }
 }
 </script>
 
 <template>
   <div class="app-layout">
     <AgentBackdrop />
-    <SideBar :expanded="sidebarExpanded" @update:expanded="sidebarExpanded = $event" />
-    <div class="main-area">
-      <TopBar />
-      <main class="content">
+    <ResponsiveShell :mobile="isMobile">
         <router-view v-slot="{ Component }">
           <transition name="leaf-flip" mode="out-in">
             <keep-alive include="ChatView">
@@ -43,8 +52,7 @@ if (!auth.isLoggedIn) {
             </keep-alive>
           </transition>
         </router-view>
-      </main>
-    </div>
+    </ResponsiveShell>
   </div>
 </template>
 
@@ -57,28 +65,6 @@ if (!auth.isLoggedIn) {
   position: relative;
 }
 
-.main-area {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  min-width: 0;
-  position: relative;
-  z-index: 1;
-}
-
-.content {
-  flex: 1;
-  overflow: auto;
-  padding: 16px;
-  position: relative;
-  z-index: 2;
-  contain: layout paint;
-}
-
-@media (max-width: 768px) {
-  .content { padding: 8px; }
-}
 </style>
 
 <style>

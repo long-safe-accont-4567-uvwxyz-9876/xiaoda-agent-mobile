@@ -1,0 +1,111 @@
+- generic [active] [ref=f2e1]:
+  - generic [ref=f2e3]:
+    - generic: 本 Agent 由作者飞个人学习用途二创开发
+    - generic [ref=f2e7]:
+      - navigation [ref=f2e2558]:
+        - generic [ref=f2e2559]:
+          - generic [ref=f2e2572]:
+            - link "对话" [ref=f2e2573]:
+              - /url: "#/"
+            - link "内在世界" [ref=f2e2578]:
+              - /url: "#/insight"
+            - link "定时与问候" [ref=f2e2582]:
+              - /url: "#/schedule"
+            - link "媒体工坊" [ref=f2e2586]:
+              - /url: "#/media"
+            - link "测试中心" [ref=f2e2590]:
+              - /url: "#/health"
+            - link "仪表盘" [ref=f2e2594]:
+              - /url: "#/dashboard"
+            - link "Agent 管理" [ref=f2e2598]:
+              - /url: "#/settings/agents"
+            - link "模型与凭证" [ref=f2e2602]:
+              - /url: "#/settings/models"
+            - link "Skills 工具" [ref=f2e2606]:
+              - /url: "#/settings/tools"
+            - link "MCP 服务" [ref=f2e2610]:
+              - /url: "#/settings/mcp"
+            - link "插件管理" [ref=f2e2614]:
+              - /url: "#/settings/plugins"
+            - link "邮箱管理" [ref=f2e2618]:
+              - /url: "#/settings/mail"
+            - link "系统设置" [ref=f2e2622]:
+              - /url: "#/settings/system"
+            - link "工作流" [ref=f2e2626]:
+              - /url: "#/workflows"
+            - link "免责声明" [ref=f2e2630]:
+              - /url: "#/disclaimer"
+            - link "请作者喝杯小甜水" [ref=f2e2634]:
+              - /url: "#/sponsor"
+          - link "请作者喝杯小甜水" [ref=f2e2638]:
+            - /url: "#/sponsor"
+      - banner [ref=f2e2643]:
+        - button "Xiaoda" [ref=f2e2645]
+        - generic "署名":
+          - generic: 🌿
+          - generic: 由 飞 二创开发
+        - generic [ref=f2e2649]:
+          - generic "当前情绪：平静" [ref=f2e2650]:
+            - generic [ref=f2e2651]: 🌱
+            - generic [ref=f2e2652]: 🌿
+          - generic "连接中断..." [ref=f2e2653]
+      - main [ref=f2e17]:
+        - generic [ref=f2e2777]:
+          - heading "🎙 媒体工坊" [level=2] [ref=f2e2778]
+          - generic [ref=f2e2779]:
+            - generic [ref=f2e2784]:
+              - generic [ref=f2e2785]: 语音合成
+              - generic [ref=f2e2788]: 图片生成
+              - generic [ref=f2e2792]: 视频生成
+            - generic [ref=f2e2798]:
+              - generic [ref=f2e2799]:
+                - generic [ref=f2e2801]:
+                  - generic [ref=f2e2802]:
+                    - generic [ref=f2e2803]:
+                      - textbox "输入要合成的文本（≤500 字）…" [ref=f2e2804]
+                      - generic: 输入要合成的文本（≤500 字）…
+                    - generic: 0 / 500
+                  - generic [ref=f2e2805]:
+                    - generic [ref=f2e2808]:
+                      - generic "Xiaoda" [ref=f2e2809]
+                      - img "loading" [ref=f2e2811]
+                    - generic [ref=f2e2820]:
+                      - generic: 情绪风格（自动）
+                      - img "loading" [ref=f2e2821]
+                    - button "🎵 合成" [ref=f2e2828]
+                - generic [ref=f2e2831]:
+                  - heading "朗读设置" [level=4] [ref=f2e2832]
+                  - generic [ref=f2e2833]:
+                    - text: 自动朗读回复
+                    - switch [ref=f2e2834]
+                  - paragraph [ref=f2e2837]: 开启后，聊天页收到回复会自动合成并播放（音色跟随当前 Agent 的 voice_ref）。
+              - generic [ref=f2e2839]:
+                - heading "参考音频管理" [level=4] [ref=f2e2840]
+                - paragraph [ref=f2e2841]: 支持 .mp3 / .wav 格式，≤10MB。音色名仅限字母、数字、下划线、中横线。
+                - generic [ref=f2e2845]:
+                  - generic "Xiaoda" [ref=f2e2846]
+                  - img "loading" [ref=f2e2848]
+                - generic [ref=f2e2855]:
+                  - generic [ref=f2e2856]:
+                    - generic [ref=f2e2857]: Xiaoda
+                    - generic [ref=f2e2858]: xiaoda
+                    - generic [ref=f2e2860]: mediaView.noVoice
+                  - generic [ref=f2e2861]:
+                    - button "📁 选择音频" [ref=f2e2863]
+                    - generic [ref=f2e2868]:
+                      - generic: mediaView.noVoice
+                      - img "loading" [ref=f2e2869]
+                    - generic [ref=f2e2876]: 暂无音色
+          - generic [ref=f2e2879]:
+            - heading "任务队列" [level=3] [ref=f2e2880]
+            - generic [ref=f2e2881]: 暂无任务
+          - generic [ref=f2e2883]:
+            - generic [ref=f2e2884]:
+              - heading "画廊" [level=3] [ref=f2e2885]
+              - generic [ref=f2e2888]:
+                - generic [ref=f2e2889]: 图片
+                - generic [ref=f2e2892]: 视频
+                - generic [ref=f2e2895]: 音频
+            - generic [ref=f2e2899]: 这里还没有长出叶子哦～生成点什么吧
+  - button "Xiaoda的虚空终端" [ref=f2e105]:
+    - generic [ref=f2e106]: ▎>_

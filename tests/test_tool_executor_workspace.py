@@ -138,10 +138,10 @@ class TestWorkspaceBoundaryShell:
 
 class TestExecuteIntegration:
     @pytest.mark.asyncio
-    async def test_unauthorized_execute_returns_fail(self, executor, pm):
+    async def test_unauthorized_execute_returns_fail(self, executor, pm, tmp_path):
         """端到端：未授权时 execute 返回失败结果"""
         pm.clear_cwd()
-        result = await executor.execute("read_file", {"path": "/tmp/any.txt"})
+        result = await executor.execute("read_file", {"path": str(tmp_path / "any.txt")})
         assert not result.success
         assert "工作目录" in result.error
 

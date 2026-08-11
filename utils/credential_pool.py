@@ -3,13 +3,14 @@
 借鉴 Hermes Agent 的凭证池机制，替代 ModelRouter 中简单的重试/降级逻辑
 """
 
-import asyncio
+import copy
 import hashlib
 import os
-import time
 import threading
-from enum import Enum
+import time
 from dataclasses import dataclass
+from enum import Enum
+
 from loguru import logger
 
 from .error_classifier import ClassifiedError, FailoverReason
@@ -255,12 +256,33 @@ class CredentialPool:
 
         旧的 DEAD 凭证即使重置状态也仍是错误的 Key，必须替换才能生效。
         """
-        old_count = len(self._pool.get(provider, []))
-        self._pool[provider] = [new_credential]
+        with self._sync_lock:
+            old_count = len(self._pool.get(provider, []))
+            self._pool[provider] = [copy.deepcopy(new_credential)]
+            self._cursor[provider] = 0
         logger.info("credential_pool.provider_replaced",
                     provider=provider,
                     old_count=old_count,
                     key_hash=_mask_api_key(new_credential.api_key))
+
+    def snapshot_provider(self, provider: str) -> list[Credential]:
+        with self._sync_lock:
+            return copy.deepcopy(self._pool.get(provider, []))
+
+    def restore_provider(self, provider: str, credentials: list[Credential]) -> None:
+        with self._sync_lock:
+            if credentials:
+                self._pool[provider] = copy.deepcopy(credentials)
+                self._cursor[provider] = 0
+            else:
+                self._pool.pop(provider, None)
+                self._cursor.pop(provider, None)
+
+    def remove_provider(self, provider: str) -> list[Credential]:
+        with self._sync_lock:
+            removed = copy.deepcopy(self._pool.pop(provider, []))
+            self._cursor.pop(provider, None)
+            return removed
 
     def get_stats(self) -> dict:
         """获取凭证池状态统计"""
@@ -327,20 +349,6 @@ class CredentialPool:
                     provider=provider,
                     base_url=base_url,
                 ))
-
-        # P0 修复：Ollama 仅在用户显式配置时启用（不再默认注册）
-        # 根因：原实现 os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
-        #       总是返回默认 URL，导致 ollama 永远被注册进凭证池，
-        #       即使用户没配置 ollama 也会尝试连接 → 持续报错。
-        # 修复：仅当 OLLAMA_BASE_URL 显式设置（非空）时才注册 ollama。
-        #       用户未配置则不启用，避免无意义连接和错误日志。
-        ollama_url = os.getenv("OLLAMA_BASE_URL", "")
-        if ollama_url:
-            self.add_credential(Credential(
-                api_key="ollama",  # 占位 Key（ollama 本地部署无需真实 Key）
-                provider="ollama",
-                base_url=ollama_url,
-            ))
 
         # 统计
         total = sum(len(creds) for creds in self._pool.values())

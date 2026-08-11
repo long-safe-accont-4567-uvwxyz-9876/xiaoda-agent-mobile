@@ -172,8 +172,8 @@ SectionEnd
 
 Section -Post
 ; ── 创建卸载程序 ──
-; 卡顿根因（v0.5.60 修复）：本安装包解压后 600MB+ / 数千个文件（PyInstaller 依赖
-; + 前端 assets + 95MB 本地模型 + onnxruntime），WriteUninstaller 需把全部已装
+; 卡顿根因（v0.5.60 修复）：本安装包解压后包含 PyInstaller 依赖和前端 assets，
+; WriteUninstaller 需把全部已装
 ; 文件清单写入 uninstall.exe，再被 Windows Defender 实时扫描，可能耗时 1-2 分钟，
 ; 界面看起来像"卡死在最后一步"。处理：
 ;   1) 先删旧 uninstall.exe：升级安装时旧文件可能被占用/杀软锁定 → WriteUninstaller

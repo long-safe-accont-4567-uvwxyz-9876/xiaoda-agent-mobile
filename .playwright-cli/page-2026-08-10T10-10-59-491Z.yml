@@ -1,0 +1,96 @@
+- generic [active] [ref=f2e1]:
+  - generic [ref=f2e3]:
+    - generic: 本 Agent 由作者飞个人学习用途二创开发
+    - generic [ref=f2e7]:
+      - banner [ref=f2e3393]:
+        - button "打开全部能力" [ref=f2e3394]
+        - button "打开快捷状态" [ref=f2e3397]:
+          - strong [ref=f2e3398]: Xiaoda
+          - generic [ref=f2e3399]: 待命
+        - button "查看连接状态：重连中" [ref=f2e3400]:
+          - generic [ref=f2e3401]: ↻
+      - main [ref=f2e17]:
+        - generic [ref=f2e3740]:
+          - generic [ref=f2e3741]:
+            - heading "🧠 模型与凭证" [level=2] [ref=f2e3742]
+            - button "＋ 自定义 Provider" [ref=f2e3743]
+          - heading "Provider 列表" [level=3] [ref=f2e3747]
+          - generic [ref=f2e3749]:
+            - heading "任务路由表 改完即生效，无须重启" [level=3] [ref=f2e3750]
+            - table [ref=f2e3751]:
+              - rowgroup [ref=f2e3752]:
+                - row [ref=f2e3753]:
+                  - columnheader "任务" [ref=f2e3754]
+                  - columnheader "model" [ref=f2e3755]
+                  - columnheader "max_tokens" [ref=f2e3756]
+                  - columnheader "thinking" [ref=f2e3757]
+                  - columnheader [ref=f2e3758]
+              - rowgroup
+            - generic [ref=f2e3759]: 降级链：
+          - generic [ref=f2e3761]:
+            - heading "Temperature 调节 控制 LLM 回复的随机性，越低越确定，越高越发散" [level=3] [ref=f2e3762]:
+              - text: Temperature 调节
+              - generic [ref=f2e3763]: 控制 LLM 回复的随机性，越低越确定，越高越发散
+            - generic [ref=f2e3764]:
+              - generic [ref=f2e3765]: "0.70"
+              - slider [ref=f2e3770]
+            - generic [ref=f2e3772]:
+              - button "精准 0" [ref=f2e3773]
+              - button "保守 0.3" [ref=f2e3775]
+              - button "平衡 0.7" [ref=f2e3777]
+              - button "创意 1" [ref=f2e3779]
+              - button "狂野 1.5" [ref=f2e3781]
+          - generic [ref=f2e3784]:
+            - heading "Frequency Penalty 调节 惩罚已出现 token 的重复频率，越高越抑制套模板重复" [level=3] [ref=f2e3785]:
+              - text: Frequency Penalty 调节
+              - generic [ref=f2e3786]: 惩罚已出现 token 的重复频率，越高越抑制套模板重复
+            - generic [ref=f2e3787]:
+              - generic [ref=f2e3788]: "1.00"
+              - slider [ref=f2e3793]
+            - generic [ref=f2e3795]:
+              - button "关闭 0" [ref=f2e3796]
+              - button "轻度 0.3" [ref=f2e3798]
+              - button "标准 1" [ref=f2e3800]
+              - button "强力 1.5" [ref=f2e3802]
+              - button "极限 2" [ref=f2e3804]
+          - generic [ref=f2e3807]:
+            - heading "Presence Penalty 调节 惩罚已出现 token 的再次生成，越高越抑制条件模式重复" [level=3] [ref=f2e3808]:
+              - text: Presence Penalty 调节
+              - generic [ref=f2e3809]: 惩罚已出现 token 的再次生成，越高越抑制条件模式重复
+            - generic [ref=f2e3810]:
+              - generic [ref=f2e3811]: "1.00"
+              - slider [ref=f2e3816]
+            - generic [ref=f2e3818]:
+              - button "关闭 0" [ref=f2e3819]
+              - button "轻度 0.3" [ref=f2e3821]
+              - button "标准 1" [ref=f2e3823]
+              - button "强力 1.5" [ref=f2e3825]
+              - button "极限 2" [ref=f2e3827]
+          - generic [ref=f2e3830]:
+            - heading "凭证池状态" [level=3] [ref=f2e3831]
+            - table [ref=f2e3832]:
+              - rowgroup [ref=f2e3833]:
+                - row [ref=f2e3834]:
+                  - columnheader "provider" [ref=f2e3835]
+                  - columnheader "key" [ref=f2e3836]
+                  - columnheader "状态" [ref=f2e3837]
+                  - columnheader "使用次数" [ref=f2e3838]
+                  - columnheader "最近错误" [ref=f2e3839]
+              - rowgroup [ref=f2e3840]:
+                - row [ref=f2e3841]:
+                  - cell "（凭证池为空）" [ref=f2e3842]
+          - heading "近 7 天用量" [level=3] [ref=f2e3845]
+      - navigation "主要导航" [ref=f2e3422]:
+        - link "对话" [ref=f2e3423]:
+          - /url: "#/"
+        - link "Agent 管理" [ref=f2e3429]:
+          - /url: "#/settings/agents"
+        - link "内在世界" [ref=f2e3434]:
+          - /url: "#/insight"
+        - link "Skills 工具" [ref=f2e3439]:
+          - /url: "#/settings/tools"
+          - generic [ref=f2e3847]: 当前
+        - link "系统设置" [ref=f2e3444]:
+          - /url: "#/settings/system"
+  - button "Xiaoda的虚空终端" [ref=f2e105]:
+    - generic [ref=f2e106]: ▎>_

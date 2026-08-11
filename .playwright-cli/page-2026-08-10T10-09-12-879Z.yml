@@ -1,0 +1,83 @@
+- generic [active] [ref=f2e1]:
+  - generic [ref=f2e3]:
+    - generic: 本 Agent 由作者飞个人学习用途二创开发
+    - generic [ref=f2e7]:
+      - navigation [ref=f2e2558]:
+        - generic [ref=f2e2559]:
+          - generic [ref=f2e2572]:
+            - link "对话" [ref=f2e2573]:
+              - /url: "#/"
+            - link "内在世界" [ref=f2e2578]:
+              - /url: "#/insight"
+            - link "定时与问候" [ref=f2e2582]:
+              - /url: "#/schedule"
+            - link "媒体工坊" [ref=f2e2586]:
+              - /url: "#/media"
+            - link "测试中心" [ref=f2e2590]:
+              - /url: "#/health"
+            - link "仪表盘" [ref=f2e2594]:
+              - /url: "#/dashboard"
+            - link "Agent 管理" [ref=f2e2598]:
+              - /url: "#/settings/agents"
+            - link "模型与凭证" [ref=f2e2602]:
+              - /url: "#/settings/models"
+            - link "Skills 工具" [ref=f2e2606]:
+              - /url: "#/settings/tools"
+            - link "MCP 服务" [ref=f2e2610]:
+              - /url: "#/settings/mcp"
+            - link "插件管理" [ref=f2e2614]:
+              - /url: "#/settings/plugins"
+            - link "邮箱管理" [ref=f2e2618]:
+              - /url: "#/settings/mail"
+            - link "系统设置" [ref=f2e2622]:
+              - /url: "#/settings/system"
+            - link "工作流" [ref=f2e2626]:
+              - /url: "#/workflows"
+            - link "免责声明" [ref=f2e2630]:
+              - /url: "#/disclaimer"
+            - link "请作者喝杯小甜水" [ref=f2e2634]:
+              - /url: "#/sponsor"
+          - link "请作者喝杯小甜水" [ref=f2e2638]:
+            - /url: "#/sponsor"
+      - banner [ref=f2e2643]:
+        - button "Xiaoda" [ref=f2e2645]
+        - generic "署名":
+          - generic: 🌿
+          - generic: 由 飞 二创开发
+        - generic [ref=f2e2649]:
+          - generic "当前情绪：平静" [ref=f2e2650]:
+            - generic [ref=f2e2651]: 🌱
+            - generic [ref=f2e2652]: 🌿
+          - generic "连接中断..." [ref=f2e2653]
+      - main [ref=f2e17]:
+        - generic [ref=f2e3194]:
+          - heading "邮箱管理" [level=2] [ref=f2e3195]
+          - generic [ref=f2e3197]:
+            - heading "邮箱连接" [level=3] [ref=f2e3198]
+            - generic [ref=f2e3202]:
+              - alert [ref=f2e3203]:
+                - generic [ref=f2e3210]: 需要先安装 agently-cli，请在对话窗口中让助手自动完成
+              - generic [ref=f2e3212]: 接入过程由助手自动完成，你无需手动安装任何工具。只需在对话窗口发送一句指令，助手会自动安装 CLI 并引导你完成授权。
+              - generic [ref=f2e3213]:
+                - generic [ref=f2e3214]:
+                  - generic [ref=f2e3215]: "1"
+                  - generic [ref=f2e3216]:
+                    - generic [ref=f2e3217]: 在对话窗口发送接入指令
+                    - generic [ref=f2e3218]: 点击下方指令复制，然后粘贴到与助手的对话窗口中发送（点击"去对话"可直接跳转）
+                    - code [ref=f2e3219]: 请阅读 https://agent.qq.com/doc/cli-setup.md 文档，按照步骤为我安装并配置 Agent Mail CLI。
+                - generic [ref=f2e3220]:
+                  - generic [ref=f2e3221]: "2"
+                  - generic [ref=f2e3222]:
+                    - generic [ref=f2e3223]: 微信扫码授权
+                    - generic [ref=f2e3224]: 助手会返回一个授权链接，打开链接使用微信扫码完成授权，系统会自动创建专属邮箱地址
+                - generic [ref=f2e3225]:
+                  - generic [ref=f2e3226]: "3"
+                  - generic [ref=f2e3227]:
+                    - generic [ref=f2e3228]: 返回对话确认
+                    - generic [ref=f2e3229]: 页面显示"登录成功"后，回到对话窗口告诉助手"已完成授权"。当助手提示"邮箱地址 xxx 已授权成功"即代表接入完成
+              - generic [ref=f2e3230]:
+                - button "去对话" [ref=f2e3231]
+                - button "重新检查" [ref=f2e3233]
+          - generic [ref=f2e3235]: 请先连接邮箱后再使用邮件功能
+  - button "Xiaoda的虚空终端" [ref=f2e105]:
+    - generic [ref=f2e106]: ▎>_

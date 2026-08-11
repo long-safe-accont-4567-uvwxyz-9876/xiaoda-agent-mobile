@@ -6,12 +6,28 @@
 核心策略：tempfile + fsync + os.replace
 """
 
-import os
+import contextlib
 import json
+import os
 import tempfile
 from pathlib import Path
+
 from loguru import logger
-import contextlib
+
+
+def fsync_directory_best_effort(directory: str | Path) -> None:
+    path = Path(directory)
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    descriptor = None
+    try:
+        descriptor = os.open(path, flags)
+        os.fsync(descriptor)
+    except OSError:
+        logger.debug("目录持久化不可用: {}", path)
+    finally:
+        if descriptor is not None:
+            with contextlib.suppress(OSError):
+                os.close(descriptor)
 
 
 def _resolve_symlink(path: Path) -> Path:
@@ -97,6 +113,7 @@ def atomic_write(target_path: str | Path, content: str | bytes,
         # 原子替换
         os.replace(tmp_path, resolved)
         tmp_path = None
+        fsync_directory_best_effort(resolved.parent)
 
         logger.debug(f"原子写入完成: {resolved}")
 

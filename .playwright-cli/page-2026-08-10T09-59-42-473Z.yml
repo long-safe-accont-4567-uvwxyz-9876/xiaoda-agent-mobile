@@ -1,0 +1,46 @@
+- generic [active] [ref=f2e1]:
+  - generic [ref=f2e3]:
+    - generic: 本 Agent 由作者飞个人学习用途二创开发
+    - generic [ref=f2e7]:
+      - banner [ref=f2e8]:
+        - button "打开全部能力" [ref=f2e9]
+        - button "打开快捷状态" [ref=f2e12]:
+          - strong [ref=f2e13]: Xiaoda
+          - generic [ref=f2e14]: 待命
+        - button "查看连接状态：重连中" [ref=f2e15]:
+          - generic [ref=f2e16]: ↻
+      - main [ref=f2e17]:
+        - generic [ref=f2e18]:
+          - generic [ref=f2e19]:
+            - button "会话" [ref=f2e20]
+            - button "新对话" [ref=f2e25]
+            - button "清空" [ref=f2e30]
+            - button "选择模型 ▾" [ref=f2e35]:
+              - generic [ref=f2e36]: 选择模型
+              - generic [ref=f2e37]: ▾
+          - generic [ref=f2e39]:
+            - generic [ref=f2e40]: 🌿
+            - paragraph [ref=f2e41]: 这里还没有长出叶子哦～说点什么吧
+          - generic [ref=f2e43]:
+            - textbox "输入消息" [ref=f2e44]
+            - generic [ref=f2e45]:
+              - generic [ref=f2e46]:
+                - button "📎" [ref=f2e47]
+                - button "🌐" [ref=f2e49]
+                - button "🧠" [ref=f2e51]
+                - button "📁" [ref=f2e54]
+              - button "🎤" [ref=f2e56]
+      - navigation "主要导航" [ref=f2e58]:
+        - link "对话" [ref=f2e59]:
+          - /url: "#/"
+          - generic [ref=f2e64]: 当前
+        - link "Agent 管理" [ref=f2e65]:
+          - /url: "#/settings/agents"
+        - link "内在世界" [ref=f2e70]:
+          - /url: "#/insight"
+        - link "Skills 工具" [ref=f2e75]:
+          - /url: "#/settings/tools"
+        - link "系统设置" [ref=f2e80]:
+          - /url: "#/settings/system"
+  - button "Xiaoda的虚空终端" [ref=f2e105]:
+    - generic [ref=f2e106]: ▎>_

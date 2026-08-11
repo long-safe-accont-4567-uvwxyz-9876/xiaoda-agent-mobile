@@ -2,7 +2,7 @@
 import { ref, onMounted, onBeforeUnmount, computed, watch } from 'vue'
 import {
   NButton, NSwitch, NModal, NForm, NFormItem, NInput, NInputNumber,
-  NSelect, NTabs, NTabPane, NTag, NPopconfirm, NDynamicTags, NCollapse,
+  NSelect, NSlider, NTabs, NTabPane, NTag, NPopconfirm, NDynamicTags, NCollapse,
   NCollapseItem, NImage, NEmpty, NSpin, useMessage,
 } from 'naive-ui'
 import { get, post, put, del, api } from '../api'
@@ -38,6 +38,36 @@ const testing = ref(false)
 const saving = ref(false)
 const wpInput = ref<HTMLInputElement | null>(null)
 const uploadingWp = ref(false)
+const wallpaperMotionOptions = computed(() => [
+  { label: String(t('agentsView.wallpaperMotionAuto')), value: 'auto' },
+  { label: String(t('agentsView.wallpaperMotionReduced')), value: 'reduced' },
+  { label: String(t('agentsView.wallpaperMotionNone')), value: 'none' },
+])
+const wallpaperPreviewStyle = computed(() => ({
+  backgroundImage: editing.value?.wallpaper ? `url('${editing.value.wallpaper}')` : undefined,
+  backgroundPosition: `${Math.round((editing.value?.wallpaper_focus?.x ?? 0.5) * 100)}% ${Math.round((editing.value?.wallpaper_focus?.y ?? 0.5) * 100)}%`,
+  '--preview-overlay': String(editing.value?.wallpaper_overlay ?? 0.28),
+}))
+
+function ensureWallpaperDefaults() {
+  if (!editing.value.wallpaper_focus) editing.value.wallpaper_focus = { x: 0.5, y: 0.5 }
+  editing.value.wallpaper_focus = {
+    x: Number(editing.value.wallpaper_focus.x ?? 0.5),
+    y: Number(editing.value.wallpaper_focus.y ?? 0.5),
+  }
+  if (editing.value.wallpaper_overlay == null) editing.value.wallpaper_overlay = 0.28
+  if (!editing.value.wallpaper_motion) editing.value.wallpaper_motion = 'auto'
+}
+
+function setWallpaperFocus(event: PointerEvent) {
+  const target = event.currentTarget as HTMLElement
+  const rect = target.getBoundingClientRect()
+  if (!rect.width || !rect.height) return
+  editing.value.wallpaper_focus = {
+    x: Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)),
+    y: Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height)),
+  }
+}
 const discoveredModels = ref<Array<{ provider: string; label?: string; models: Array<{ id: string; display_name: string; free: boolean }> }>>([])
 const advancedTouched = ref(false)
 const switchingModel = ref(false)
@@ -201,6 +231,7 @@ function pickWallpaper(e: Event) {
       const r = await post<any>(`/agents/${editing.value.name}/wallpaper`,
         { data_url: reader.result })
       editing.value.wallpaper = r.wallpaper
+      ensureWallpaperDefaults()
       message.success(t('agentsView.wallpaperUpdated'))
       await agentsStore.load()
     } catch (err: any) {
@@ -245,6 +276,7 @@ async function openEditor(agent: any | null) {
   advancedTouched.value = false
   if (agent) {
     editing.value = JSON.parse(JSON.stringify(agent))
+    ensureWallpaperDefaults()
     try {
       const p = await get(`/agents/${agent.name}/personality`)
       personality.value = p.personality || ''
@@ -261,6 +293,7 @@ async function openEditor(agent: any | null) {
       base_url: '', api_key_env: '', route_description: '', capabilities: [],
       voice_ref: null, max_turns: 8, effort: 'medium',
       permission_mode: 'default', memory_scope: 'shared', wallpaper: '',
+      wallpaper_focus: { x: 0.5, y: 0.5 }, wallpaper_overlay: 0.28, wallpaper_motion: 'auto',
       ack_messages: [],
     }
     personality.value = ''
@@ -597,9 +630,36 @@ async function uploadVoiceForAgent() {
                   <input ref="wpInput" type="file" accept="image/png,image/jpeg,image/webp"
                          style="display: none" @change="pickWallpaper" />
                 </div>
-                <div v-if="editing.wallpaper" class="wallpaper-preview"
-                     :style="{ backgroundImage: `url('${editing.wallpaper}')` }" />
+                <button v-if="editing.wallpaper" type="button" class="wallpaper-preview"
+                        :style="wallpaperPreviewStyle"
+                        :aria-label="String(t('agentsView.wallpaperFocusHint'))"
+                        @pointerdown="setWallpaperFocus">
+                  <span class="preview-top-safe" aria-hidden="true"></span>
+                  <span class="preview-message-safe" aria-hidden="true"></span>
+                  <span class="preview-bottom-safe" aria-hidden="true"></span>
+                  <span class="focus-reticle" aria-hidden="true"
+                        :style="{ left: `${(editing.wallpaper_focus?.x ?? 0.5) * 100}%`, top: `${(editing.wallpaper_focus?.y ?? 0.5) * 100}%` }"></span>
+                </button>
                 <span v-else class="wallpaper-hint">{{ t('agentsView.wallpaperHint') }}</span>
+                <div class="wallpaper-controls">
+                  <label>
+                    <span>{{ t('agentsView.wallpaperFocusX') }}</span>
+                    <n-slider v-model:value="editing.wallpaper_focus.x" :min="0" :max="1" :step="0.01" />
+                  </label>
+                  <label>
+                    <span>{{ t('agentsView.wallpaperFocusY') }}</span>
+                    <n-slider v-model:value="editing.wallpaper_focus.y" :min="0" :max="1" :step="0.01" />
+                  </label>
+                  <label>
+                    <span>{{ t('agentsView.wallpaperOverlay') }} ? {{ Math.round(editing.wallpaper_overlay * 100) }}%</span>
+                    <n-slider v-model:value="editing.wallpaper_overlay" :min="0" :max="1" :step="0.01" />
+                  </label>
+                  <label>
+                    <span>{{ t('agentsView.wallpaperMotion') }}</span>
+                    <n-select v-model:value="editing.wallpaper_motion" :options="wallpaperMotionOptions" />
+                  </label>
+                  <span class="wallpaper-hint">{{ t('agentsView.wallpaperFocusHint') }}</span>
+                </div>
               </div>
             </n-form-item>
           </n-form>
@@ -815,12 +875,46 @@ async function uploadVoiceForAgent() {
 .wallpaper-row { display: flex; gap: 8px; }
 .voice-ref-field { display: flex; gap: 8px; align-items: center; width: 100%; flex-wrap: wrap; }
 .wallpaper-preview {
-  height: 90px;
-  border-radius: 10px;
-  background: center/cover no-repeat;
+  position: relative;
+  width: 100%;
+  height: 180px;
+  padding: 0;
+  overflow: hidden;
+  border-radius: 12px;
+  background-size: cover;
+  background-repeat: no-repeat;
   border: 1px solid var(--glass-border);
+  cursor: crosshair;
+  touch-action: none;
 }
+.wallpaper-preview::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgba(3, 10, 7, var(--preview-overlay));
+}
+.preview-top-safe, .preview-bottom-safe, .preview-message-safe {
+  position: absolute; z-index: 1; pointer-events: none;
+  border: 1px dashed rgba(242, 247, 238, 0.5);
+  background: rgba(3, 10, 7, 0.28);
+}
+.preview-top-safe { inset: 0 0 auto; height: 18%; }
+.preview-bottom-safe { inset: auto 0 0; height: 22%; }
+.preview-message-safe { left: 12%; right: 12%; top: 27%; bottom: 28%; border-radius: 10px; }
+.focus-reticle {
+  position: absolute; z-index: 2; width: 28px; height: 28px;
+  border: 2px solid var(--dendro); border-radius: 50%;
+  transform: translate(-50%, -50%); box-shadow: 0 0 0 3px rgba(3, 10, 7, 0.65);
+}
+.wallpaper-controls { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 16px; }
+.wallpaper-controls label { display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--moon-dim); }
+.wallpaper-controls .wallpaper-hint { grid-column: 1 / -1; }
 .wallpaper-hint { font-size: 12px; color: var(--moon-dim); }
+
+@media (max-width: 768px) {
+  .wallpaper-row, .wallpaper-controls { grid-template-columns: 1fr; flex-direction: column; }
+  .wallpaper-preview { height: 220px; }
+}
 
 .modal-footer { display: flex; justify-content: flex-end; gap: 10px; }
 

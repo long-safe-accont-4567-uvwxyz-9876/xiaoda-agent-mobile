@@ -8,6 +8,7 @@ from loguru import logger
 from openai import AsyncOpenAI
 
 from config import get_agent_display_name
+from core.app_exception import ProtocolError
 from core.message import AgentMessage
 from emotion.emoji_config import get_status_msg
 from emotion.tts_engine import TTSEngine
@@ -133,6 +134,9 @@ class SubAgentConfig:
     memory_scope: str | None = None        # 记忆作用域: "shared"/"isolated"
     background: bool = False               # 是否后台运行
     wallpaper: str = ""                    # 聊天背景板 URL（/assets/... 或上传后的 /media/...）
+    wallpaper_focus: dict[str, float] = field(default_factory=lambda: {"x": 0.5, "y": 0.5})
+    wallpaper_overlay: float = 0.28
+    wallpaper_motion: str = "auto"
     sticker_dir: str = ""                  # 表情包目录路径（为空则自动推导）
     allowed_paths: list[str] = field(default_factory=list)    # 允许修改的路径白名单（glob 模式）
     forbidden_paths: list[str] = field(default_factory=list)  # 禁止修改的路径黑名单
@@ -174,7 +178,14 @@ class SubAgent:
     async def init(self) -> None:
         api_key = _read_env_key(self.config.api_key_env)
         if api_key and self.config.base_url:
-            self._client = AsyncOpenAI(api_key=api_key, base_url=self.config.base_url)
+            from web.provider_urls import validate_provider_base_url
+            try:
+                base_url = validate_provider_base_url(self.config.base_url)
+                from web.custom_providers import build_openai_client
+                self._client = build_openai_client(base_url, api_key)
+                self.config.base_url = base_url
+            except ProtocolError:
+                logger.warning("sub_agent.provider_url_rejected", name=self.config.name)
 
         self._load_personality()
 
@@ -249,12 +260,16 @@ class SubAgent:
                            api_key_env=api_key_env)
             return False
         try:
-            new_client = AsyncOpenAI(api_key=api_key, base_url=base_url)
-        except (ValueError, OSError, RuntimeError) as e:
+            from web.provider_urls import validate_provider_base_url
+            base_url = validate_provider_base_url(base_url)
+            from web.custom_providers import build_openai_client
+            new_client = build_openai_client(base_url, api_key)
+        except (ValueError, OSError, RuntimeError, ProtocolError) as e:
             logger.warning("sub_agent.reload_client_failed",
                            name=self.config.name, error=str(e)[:200])
             return False
         # 原子替换：先就位再切，避免半成品状态
+        old_client = self._client
         self._client = new_client
         self.config.provider = provider
         self.config.model = model
@@ -264,6 +279,11 @@ class SubAgent:
         self._degraded = False  # 清除降级标记：新 Key 已就位，允许调用
         logger.info("sub_agent.model_reloaded",
                     name=self.config.name, provider=provider, model=model)
+        if old_client is not None and old_client is not new_client:
+            try:
+                await old_client.close()
+            except (ValueError, OSError, RuntimeError):
+                logger.debug("sub_agent.reload_old_client_close_failed", exc_info=True)
         return True
 
     @property
@@ -356,7 +376,11 @@ class SubAgent:
             if api_key and self.config.base_url:
                 old_client = self._client
                 try:
-                    self._client = AsyncOpenAI(api_key=api_key, base_url=self.config.base_url)
+                    from web.provider_urls import validate_provider_base_url
+                    base_url = validate_provider_base_url(self.config.base_url)
+                    from web.custom_providers import build_openai_client
+                    self._client = build_openai_client(base_url, api_key)
+                    self.config.base_url = base_url
                     self._degraded = False
                     self._initialized = True
                     logger.info("sub_agent.auto_recovered", name=self.config.name)
@@ -366,7 +390,7 @@ class SubAgent:
                             await old_client.close()
                         except (OSError, RuntimeError):
                             logger.debug("agent_dispatcher.close_old_client_error", exc_info=True)
-                except (ImportError, ValueError, OSError) as e:
+                except (ImportError, ValueError, OSError, ProtocolError) as e:
                     logger.debug("sub_agent.recover_failed", name=self.config.name, error=str(e)[:80])
 
         if not self.available:
@@ -967,10 +991,11 @@ class AgentDispatcher:
             logger.info("dispatcher.registered", name=config.name, display_name=config.display_name)
         return True
 
-    def unregister(self, name: str) -> bool:
+    async def unregister(self, name: str) -> bool:
         if name not in self._agents:
             return False
-        del self._agents[name]
+        agent = self._agents.pop(name)
+        await agent.close()
         logger.info("dispatcher.unregistered", name=name)
         return True
 
@@ -1022,12 +1047,20 @@ class AgentDispatcher:
             try:
                 api_key = _read_env_key(agent.config.api_key_env)
                 if api_key and agent.config.base_url:
-                    agent._client = AsyncOpenAI(api_key=api_key, base_url=agent.config.base_url)
+                    from web.provider_urls import validate_provider_base_url
+                    base_url = validate_provider_base_url(agent.config.base_url)
+                    from web.custom_providers import build_openai_client
+                    old_client = agent._client
+                    agent._client = build_openai_client(base_url, api_key)
+                    agent.config.base_url = base_url
                     agent._initialized = True
                     agent._degraded = False  # 清除降级标记
                     count += 1
                     logger.info("sub_agent.client_refreshed", name=name)
-            except (ValueError, OSError, RuntimeError) as e:
+                    if old_client is not None and old_client is not agent._client:
+                        from core.background_tasks import _spawn
+                        _spawn(old_client.close())
+            except (ValueError, OSError, RuntimeError, ProtocolError) as e:
                 logger.warning("sub_agent.client_refresh_failed", name=name, error=str(e)[:200])
         return count
 

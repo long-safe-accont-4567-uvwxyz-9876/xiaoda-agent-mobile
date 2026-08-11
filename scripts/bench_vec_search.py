@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """向量检索延迟基准——验证 10 万条数据量下的检索延迟预估。
 
-背景（2026-08-07，香橙派本地 Embedding 接入）：
+背景：
 - 生产向量库当前 ~1.4 万条（sqlite-vec vec0 暴力扫描，实测 ~5ms/次）
 - 理论预估：暴力扫描延迟随数据量线性增长，10 万条约 ~30-40ms；
   引入 HNSW 索引则 ~10ms 且几乎不随数据量增长
-- 本脚本生成随机 512 维向量（对齐 BGE-small-zh-v1.5 输出维度），真实建表测量：
+- 本脚本生成随机 1024 维向量（对齐 SiliconFlow BAAI/bge-m3 输出维度），真实建表测量：
   1) sqlite-vec vec0 暴力扫描（当前生产方案）
   2) [可选] Faiss HNSW 对比（--faiss 启用；未安装则跳过）
   3) numpy 精确 KNN 参考（裸矩阵乘上界参考）
@@ -32,7 +32,7 @@ import numpy as np
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-DIMS = 512
+DIMS = 1024
 DEFAULT_N = 100_000
 BATCH = 1000  # 每批插入条数，控制峰值内存（约 2MB/批）
 
@@ -75,7 +75,7 @@ def bench_sqlite_vec(path: Path, n: int, k: int, queries: int, dims: int) -> tup
             vecs = _rand_vecs(min(BATCH, n - i), dims, seed=1000 + i)
             rows = [(i + j + 1, serialize_float32(vecs[j])) for j in range(len(vecs))]
             conn.executemany(
-                f"INSERT INTO items(rowid, embedding) VALUES (?, vec_f32(?))", rows
+                "INSERT INTO items(rowid, embedding) VALUES (?, vec_f32(?))", rows
             )
             conn.commit()
         build_s = time.perf_counter() - t0

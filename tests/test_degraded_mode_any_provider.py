@@ -76,24 +76,3 @@ def test_has_any_provider_credential_false_when_all_empty():
                 with patch("web._provider_keys.load_provider_key",
                            return_value=""):
                     assert _has_any_provider_credential() is False
-
-
-def test_has_any_provider_credential_skips_ollama():
-    """ollama 不需要 API key，不应仅凭 ollama 配置存在就判为非降级。
-
-    根因：ollama 注册时只看 OLLAMA_BASE_URL，没有 key 文件。若把 ollama
-    视为"有凭证"，用户残留 ollama 配置时会误判非降级，但实际没有可用 provider。
-    """
-    from web.server import _has_any_provider_credential
-
-    # 只有 ollama 一个 provider
-    custom_providers = {"ollama": {"label": "Ollama", "enabled": True}}
-
-    with patch("web.server._resolve_env_api_key", return_value=""):
-        with patch("setup_wizard._load_env_values", return_value={}):
-            with patch("web.config_service.get_config_service") as mock_cfg:
-                mock_cfg.return_value.get.return_value = custom_providers
-                # load_provider_key 对 ollama 返回空（ollama 没有 key 文件）
-                with patch("web._provider_keys.load_provider_key",
-                           return_value=""):
-                    assert _has_any_provider_credential() is False

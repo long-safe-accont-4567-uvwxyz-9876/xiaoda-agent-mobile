@@ -1,5 +1,5 @@
 import { t } from '../i18n'
-import { bearerToken, storeBrowserSession } from '../platform/authSession'
+import { bearerToken, refreshNativeSessionExpiry, storeBrowserSession } from '../platform/authSession'
 import { runtimeApiBase } from '../platform/runtimeConfig'
 
 const BASE = runtimeApiBase()
@@ -8,6 +8,23 @@ interface ApiEnvelope<T> {
   ok: boolean
   data: T | null
   error?: { code: string; message: string }
+  code?: string
+  message?: string
+  detail?: unknown
+  stage?: string
+  retryable?: boolean
+  trace_id?: string
+}
+
+function errorMessage(body: any, status: number, fallback?: string): string {
+  const value = body?.message ?? body?.error?.message ?? body?.detail
+  if (typeof value === 'string' && value) return value
+  if (value !== undefined && value !== null) return JSON.stringify(value)
+  return fallback || `HTTP ${status}`
+}
+
+async function responseBody(res: Response): Promise<any> {
+  return res.json().catch(() => ({}))
 }
 
 async function request<T>(path: string, options?: RequestInit, confirm = false): Promise<T> {
@@ -22,28 +39,23 @@ async function request<T>(path: string, options?: RequestInit, confirm = false):
     if (e?.name === 'AbortError') throw e
     throw new Error(e?.message || 'Network error')
   })
+  const body = await responseBody(res) as ApiEnvelope<T>
   if (res.status === 401) {
     storeBrowserSession('', 0)
     // token 失效/未登录时一律引导到登录页（无密码环境同样需要点击"进入"，
     // 不做静默空密码重登——那样会绕过登录页）。设置页保存场景的 401 已由
     // 后端 profile 端点免认证（_profile_endpoint_access）根治，无需前端兜底。
     if (!location.hash.includes('login')) location.hash = '#/login'
-    throw new Error(t('login.tokenExpired'))
+    throw new Error(errorMessage(body, res.status, t('login.tokenExpired')))
   }
   // 滑动续期：后端在响应头返回新 token 时自动替换本地存储
   const newToken = res.headers.get('X-New-Token')
   if (newToken) {
     storeBrowserSession(newToken, Number(res.headers.get('X-New-Token-Expiry')) || 0)
   }
-  let body: ApiEnvelope<T>
-  try {
-    body = await res.json()
-  } catch {
-    throw new Error(`HTTP ${res.status}`)
-  }
+  refreshNativeSessionExpiry(Number(res.headers.get('X-WebView-Session-Expiry')) || 0)
   if (!res.ok || !body.ok) {
-    const msg = body?.error?.message || (body as any)?.detail || `HTTP ${res.status}`
-    throw new Error(typeof msg === 'string' ? msg : JSON.stringify(msg))
+    throw new Error(errorMessage(body, res.status))
   }
   return body.data as T
 }
@@ -115,16 +127,14 @@ export const api = {
       headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
       body: formData,
     })
-    const body = await res.json()
-    if (!res.ok || !body.ok) throw new Error(body?.error?.message || 'Upload failed')
+    const body = await responseBody(res)
+    if (!res.ok || !body.ok) throw new Error(errorMessage(body, res.status, 'Upload failed'))
     return body.data
   },
 
   // Setup wizard APIs（首次运行时后端免认证；非首次需 token，统一走 request()
   // 以自动处理 X-New-Token 滑动续期，token 失效时引导重新登录而非裸 401 报错）
-  getSetupFirstRun: () => {
-    return fetch(`${BASE}/setup/first-run`, { credentials: 'include' }).then(r => r.json()).then(b => b.data)
-  },
+  getSetupFirstRun: () => get('/setup/first-run'),
 
   getSetupKeys: () => get<{ keys: any[] }>('/setup/keys'),
 
@@ -159,8 +169,8 @@ export const api = {
       headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
       body: formData,
     })
-    const body = await res.json()
-    if (!res.ok || !body.ok) throw new Error(body?.error?.message || 'Upload failed')
+    const body = await responseBody(res)
+    if (!res.ok || !body.ok) throw new Error(errorMessage(body, res.status, 'Upload failed'))
     return body.data as { name: string; description: string; emotion: string; url: string }
   },
 
@@ -177,8 +187,8 @@ export const api = {
       headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
       body: formData,
     })
-    const body = await res.json()
-    if (!res.ok || !body.ok) throw new Error(body?.error?.message || 'Upload failed')
+    const body = await responseBody(res)
+    if (!res.ok || !body.ok) throw new Error(errorMessage(body, res.status, 'Upload failed'))
     return body.data as { url: string; name: string }
   },
 
@@ -194,8 +204,8 @@ export const api = {
       headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
       body: formData,
     })
-    const body = await res.json()
-    if (!res.ok || !body.ok) throw new Error(body?.error?.message || 'Upload failed')
+    const body = await responseBody(res)
+    if (!res.ok || !body.ok) throw new Error(errorMessage(body, res.status, 'Upload failed'))
     return body.data as { url: string; name: string; path: string; ext: string }
   },
 
@@ -209,8 +219,8 @@ export const api = {
       headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
       body: formData,
     })
-    const body = await res.json()
-    if (!res.ok || !body.ok) throw new Error(body?.error?.message || 'STT failed')
+    const body = await responseBody(res)
+    if (!res.ok || !body.ok) throw new Error(errorMessage(body, res.status, 'STT failed'))
     return body.data as { text: string }
   },
 
@@ -256,8 +266,8 @@ export async function exportSessionDownload(sessionId: string): Promise<void> {
     },
   })
   if (!res.ok) {
-    const body = await res.json().catch(() => ({}))
-    throw new Error(body?.error?.message || `导出失败 (HTTP ${res.status})`)
+    const body = await responseBody(res)
+    throw new Error(errorMessage(body, res.status, `导出失败 (HTTP ${res.status})`))
   }
   const blob = await res.blob()
   const url = URL.createObjectURL(blob)

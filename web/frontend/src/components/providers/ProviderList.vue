@@ -1,0 +1,13 @@
+<script setup lang="ts">
+import { computed } from 'vue'
+import { NButton, NPopconfirm, NTag, NSwitch } from 'naive-ui'
+import draggable from 'vuedraggable'
+const props=defineProps<{ providers:any[]; results:Record<string,any>; testingId:string }>()
+const emit=defineEmits<{edit:[provider:any];test:[id:string];discover:[id:string];references:[id:string];remove:[id:string];toggle:[provider:any,value:boolean];reorder:[ids:string[]]}>()
+const builtin=computed(()=>props.providers.filter(p=>p.builtin));const custom=computed({get:()=>props.providers.filter(p=>!p.builtin),set:value=>emit('reorder',value.map(p=>p.id))})
+</script>
+<template><div class="provider-list">
+  <div v-for="p in builtin" :key="p.id" class="provider-row"><div class="provider-info"><strong>{{p.label}}</strong><n-tag size="small">builtin</n-tag><code>{{p.base_url}}</code></div><div class="provider-ops"><n-button size="small" @click="emit('test',p.id)">Test</n-button><n-button size="small" @click="emit('discover',p.id)">Discover</n-button></div></div>
+  <draggable v-model="custom" item-key="id" handle=".drag-handle"><template #item="{element:p}"><div class="provider-row"><div class="provider-info"><span class="drag-handle">&#9776;</span><strong>{{p.label}}</strong><n-tag size="small">{{p.format}}</n-tag><code>{{p.base_url}}</code><span>{{p.key_masked || 'No key stored'}}</span></div><div class="provider-ops"><n-switch :value="p.enabled" @update:value="v=>emit('toggle',p,v)"/><n-button size="small" :loading="testingId===p.id" @click="emit('test',p.id)">Test</n-button><n-button size="small" @click="emit('discover',p.id)">Discover</n-button><n-button size="small" @click="emit('references',p.id)">References</n-button><n-button size="small" @click="emit('edit',p)">Edit</n-button><n-popconfirm @positive-click="emit('remove',p.id)"><template #trigger><n-button size="small" type="error" quaternary>Delete</n-button></template>Delete this Provider after checking references?</n-popconfirm></div><div v-if="results[p.id]" class="provider-result">{{results[p.id].ok?'PASS':'FAIL'}} ? {{results[p.id].latency_ms||0}}ms</div></div></template></draggable>
+</div></template>
+<style scoped>.provider-list{display:grid;gap:8px}.provider-row{display:flex;flex-wrap:wrap;justify-content:space-between;gap:10px;padding:10px;border:1px solid var(--glass-border);border-radius:10px}.provider-info,.provider-ops{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}.provider-info code{overflow-wrap:anywhere;color:var(--moon-dim)}.drag-handle{cursor:grab}.provider-result{width:100%;font-size:12px;color:var(--wisdom)}@media(max-width:767px){.provider-row,.provider-info,.provider-ops{align-items:stretch;flex-direction:column}.provider-ops>*{min-height:48px;width:100%}}</style>

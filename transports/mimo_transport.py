@@ -1,8 +1,9 @@
 """MiMo Transport - 适配小米 MiMo API"""
-import os
 import asyncio
-from openai import AsyncOpenAI
+import os
+
 from transports.base import ProviderTransport, TransportResponse
+from web.custom_providers import build_openai_client
 
 
 class MiMoTransport(ProviderTransport):
@@ -13,7 +14,7 @@ class MiMoTransport(ProviderTransport):
         # 从 os.getenv() 实时读取，避免使用 config 模块级冻结变量
         _key = os.getenv("MIMO_API_KEY", "")
         _url = os.getenv("MIMO_BASE_URL", "https://api.xiaomimimo.com/v1")
-        self._client = AsyncOpenAI(api_key=_key, base_url=_url) if _key else None
+        self._client = build_openai_client(_url, _key) if _key else None
 
     @property
     def provider_name(self) -> str:
@@ -23,6 +24,11 @@ class MiMoTransport(ProviderTransport):
     def is_available(self) -> bool:
         """返回 MiMo 客户端是否已初始化。"""
         return self._client is not None
+
+    async def close(self) -> None:
+        if self._client is not None:
+            await self._client.close()
+            self._client = None
 
     async def chat(self, model: str, messages: list[dict],
                    temperature: float = 0.7, max_tokens: int = 4096,

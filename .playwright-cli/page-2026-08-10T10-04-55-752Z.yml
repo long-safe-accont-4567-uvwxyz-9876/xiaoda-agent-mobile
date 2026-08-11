@@ -1,0 +1,45 @@
+- generic [active] [ref=f2e1]:
+  - generic [ref=f2e3]:
+    - generic: 本 Agent 由作者飞个人学习用途二创开发
+    - generic [ref=f2e7]:
+      - banner [ref=f2e1067]:
+        - button "打开全部能力" [ref=f2e1068]
+        - button "打开快捷状态" [ref=f2e1071]:
+          - strong [ref=f2e1072]: Xiaoda
+          - generic [ref=f2e1073]: 待命
+        - button "查看连接状态：重连中" [ref=f2e1074]:
+          - generic [ref=f2e1075]: ↻
+      - main [ref=f2e17]:
+        - generic [ref=f2e1128]:
+          - heading "🌱 内在世界" [level=2] [ref=f2e1129]
+          - generic [ref=f2e1130]:
+            - generic [ref=f2e1135]:
+              - generic [ref=f2e1136]: 情绪
+              - generic [ref=f2e1139]: 认知画像
+              - generic [ref=f2e1143]: 今日事件
+              - generic [ref=f2e1147]: 记忆
+              - generic [ref=f2e1151]: 知识图谱
+              - generic [ref=f2e1155]: 笔记
+              - generic [ref=f2e1159]: 学习记录
+              - generic [ref=f2e1163]: 本能
+              - generic [ref=f2e1167]: ♥ 亲密度
+            - generic [ref=f2e1173]:
+              - generic [ref=f2e1175]:
+                - generic [ref=f2e1176]: 平静
+                - generic [ref=f2e1177]: 最近一次回复的情绪
+              - generic [ref=f2e1178]:
+                - heading "7 天情绪河流" [level=4] [ref=f2e1180]
+                - heading "今日分布" [level=4] [ref=f2e1183]
+      - navigation "主要导航" [ref=f2e1076]:
+        - link "对话" [ref=f2e1077]:
+          - /url: "#/"
+        - link "Agent 管理" [ref=f2e1082]:
+          - /url: "#/settings/agents"
+        - link "内在世界" [ref=f2e1088]:
+          - /url: "#/insight"
+        - link "Skills 工具" [ref=f2e1093]:
+          - /url: "#/settings/tools"
+        - link "系统设置" [ref=f2e1098]:
+          - /url: "#/settings/system"
+  - button "Xiaoda的虚空终端" [ref=f2e105]:
+    - generic [ref=f2e106]: ▎>_
