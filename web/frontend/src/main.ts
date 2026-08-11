@@ -1,7 +1,6 @@
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import { createRouter, createWebHashHistory } from 'vue-router'
-import i18n from './i18n'
 
 async function startMobileApp() {
   const { default: MobileApp } = await import('./MobileApp.vue')
@@ -9,11 +8,12 @@ async function startMobileApp() {
 }
 
 async function startDesktopApp() {
-  const [{ default: App }, { routes }, { useAuthStore }, { loadAgentNames }] = await Promise.all([
+  const [{ default: App }, { routes }, { useAuthStore }, { loadAgentNames }, { default: i18n }] = await Promise.all([
     import('./App.vue'),
     import('./routes'),
     import('./stores/auth'),
     import('./utils/agentNames'),
+    import('./i18n'),
   ])
   const pinia = createPinia()
   const router = createRouter({ history: createWebHashHistory(), routes })

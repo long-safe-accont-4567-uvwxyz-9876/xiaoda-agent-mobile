@@ -62,6 +62,7 @@ export function createLocalNativeBridge() {
   }
 
   const on = (event: string, listener: (data: any) => void) => {
+    nativePort()
     const eventListeners = listeners.get(event) || new Set<(data: any) => void>()
     eventListeners.add(listener)
     listeners.set(event, eventListeners)

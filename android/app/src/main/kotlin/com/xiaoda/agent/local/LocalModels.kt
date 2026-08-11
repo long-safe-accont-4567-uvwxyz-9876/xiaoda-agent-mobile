@@ -3,7 +3,7 @@ package com.xiaoda.agent.local
 import org.json.JSONArray
 import org.json.JSONObject
 
-const val DEFAULT_SYSTEM_PROMPT = "????????????????????? AI ???"
+const val DEFAULT_SYSTEM_PROMPT = "You are Xiaoda, a reliable, clear, and privacy-conscious mobile AI assistant."
 
 data class LocalProvider(
     val id: String,
@@ -32,7 +32,7 @@ data class LocalProvider(
 }
 
 data class LocalAgentConfig(
-    val name: String = "??",
+    val name: String = "Xiaoda",
     val providerId: String = "",
     val model: String = "",
     val systemPrompt: String = DEFAULT_SYSTEM_PROMPT,
@@ -45,7 +45,7 @@ data class LocalAgentConfig(
 
     companion object {
         fun fromJson(value: JSONObject): LocalAgentConfig = LocalAgentConfig(
-            name = value.optString("name", "??"),
+            name = value.optString("name", "Xiaoda"),
             providerId = value.optString("providerId"),
             model = value.optString("model"),
             systemPrompt = value.optString("systemPrompt", DEFAULT_SYSTEM_PROMPT),
@@ -137,7 +137,7 @@ data class LocalSession(
             val messages = value.optJSONArray("messages") ?: JSONArray()
             return LocalSession(
                 id = value.getString("id"),
-                title = value.optString("title", "???"),
+                title = value.optString("title", "New chat"),
                 createdAt = value.getLong("createdAt"),
                 updatedAt = value.getLong("updatedAt"),
                 messages = (0 until messages.length()).map { LocalMessage.fromJson(messages.getJSONObject(it)) },

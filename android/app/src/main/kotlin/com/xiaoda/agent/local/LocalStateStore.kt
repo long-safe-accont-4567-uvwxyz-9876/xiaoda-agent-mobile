@@ -56,7 +56,7 @@ class LocalStateStore(
     @Synchronized
     fun createSession(): LocalSession {
         val now = clock()
-        return LocalSession(UUID.randomUUID().toString(), "???", now, now, emptyList()).also(::writeSession)
+        return LocalSession(UUID.randomUUID().toString(), "New chat", now, now, emptyList()).also(::writeSession)
     }
 
     @Synchronized
@@ -75,7 +75,7 @@ class LocalStateStore(
         val current = session(sessionId) ?: throw IllegalArgumentException("session_not_found")
         val messages = current.messages + message
         val firstUser = messages.firstOrNull { it.role == "user" }?.content.orEmpty().trim()
-        val title = if (current.title == "???" && firstUser.isNotEmpty()) firstUser.take(32) else current.title
+        val title = if (current.title == "New chat" && firstUser.isNotEmpty()) firstUser.take(32) else current.title
         return current.copy(title = title, updatedAt = clock(), messages = messages).also(::writeSession)
     }
 

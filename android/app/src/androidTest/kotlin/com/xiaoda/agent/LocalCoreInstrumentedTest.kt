@@ -29,8 +29,8 @@ class LocalCoreInstrumentedTest {
                 MockResponse()
                     .setHeader("Content-Type", "text/event-stream")
                     .setBody(
-                        "data: {\"choices\":[{\"delta\":{\"content\":\"??\"}}]}\n\n" +
-                            "data: {\"choices\":[{\"delta\":{\"content\":\"??\"}}]}\n\n" +
+                        "data: {\"choices\":[{\"delta\":{\"content\":\"Local \"}}]}\n\n" +
+                            "data: {\"choices\":[{\"delta\":{\"content\":\"works\"}}]}\n\n" +
                             "data: [DONE]\n\n",
                     ),
             )
@@ -56,10 +56,10 @@ class LocalCoreInstrumentedTest {
 
                 controller.saveAgent(
                     JSONObject()
-                        .put("name", "??")
+                        .put("name", "Xiaoda")
                         .put("providerId", providerId)
                         .put("model", "test-model")
-                        .put("systemPrompt", "????"),
+                        .put("systemPrompt", "Be concise"),
                 )
                 val sessionId = controller.createSession().getString("id")
                 val completed = CountDownLatch(1)
@@ -70,7 +70,7 @@ class LocalCoreInstrumentedTest {
                     JSONObject()
                         .put("sessionId", sessionId)
                         .put("requestId", "instrumented-request")
-                        .put("text", "??"),
+                        .put("text", "test"),
                 ) { event ->
                     when (event.optString("event")) {
                         "local.chat.completed" -> {
@@ -87,10 +87,10 @@ class LocalCoreInstrumentedTest {
                 assertTrue(started.optBoolean("started"))
                 assertTrue("local chat timed out", completed.await(15, TimeUnit.SECONDS))
                 assertEquals("", failure)
-                assertEquals("????", answer)
+                assertEquals("Local works", answer)
                 val messages = controller.messages(JSONObject().put("sessionId", sessionId)).getJSONArray("messages")
                 assertEquals(2, messages.length())
-                assertEquals("????", messages.getJSONObject(1).getString("content"))
+                assertEquals("Local works", messages.getJSONObject(1).getString("content"))
                 val request = server.takeRequest(5, TimeUnit.SECONDS)
                 assertEquals("/v1/chat/completions", request?.path)
                 assertEquals("Bearer instrumented-secret", request?.getHeader("Authorization"))

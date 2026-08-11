@@ -48,7 +48,7 @@ const bridge = getLocalNativeBridge()
 const loading = ref(true)
 const error = ref('')
 const providers = ref<Provider[]>([])
-const agent = ref<Agent>({ name: '??', providerId: '', model: '', systemPrompt: '????????????????????? AI ???' })
+const agent = ref<Agent>({ name: 'Xiaoda', providerId: '', model: '', systemPrompt: 'You are Xiaoda, a reliable, clear, and privacy-conscious mobile AI assistant.' })
 const sessions = ref<SessionSummary[]>([])
 const messages = ref<Message[]>([])
 const capabilities = ref<Capability[]>([])
@@ -87,19 +87,19 @@ const formatTime = (timestamp: number) => new Date(timestamp).toLocaleTimeString
 function friendlyError(value: unknown) {
   const code = value instanceof Error ? value.message : String(value || '')
   const labels: Record<string, string> = {
-    api_key_required: '??? API Key?',
-    invalid_api_key: 'API Key ??????',
-    provider_authentication_failed: 'API Key ???????????',
-    provider_endpoint_or_model_not_found: '???????????',
-    provider_rate_limited: '?????????????',
-    insecure_base_url: '??????? HTTPS ?????',
-    invalid_base_url: '??????????',
-    provider_not_configured: '???? Provider ????',
-    native_bridge_timeout: '?????????????',
-    cancelled: '??????',
-    attachment_not_supported_by_provider: '?? Provider ????????????????????????? PDF ? Anthropic?',
+    api_key_required: 'Enter an API key.',
+    invalid_api_key: 'The API key format is invalid.',
+    provider_authentication_failed: 'Authentication failed. Check the API key.',
+    provider_endpoint_or_model_not_found: 'The endpoint or model was not found.',
+    provider_rate_limited: 'The provider is rate limiting requests. Try again later.',
+    insecure_base_url: 'Release builds require an HTTPS endpoint.',
+    invalid_base_url: 'The endpoint URL is invalid.',
+    provider_not_configured: 'Configure a provider and model first.',
+    native_bridge_timeout: 'The local Android service timed out. Try again.',
+    cancelled: 'Generation stopped.',
+    attachment_not_supported_by_provider: 'This provider does not support that attachment type. Use an image or text file, or use Anthropic for PDF input.',
   }
-  return labels[code] || '??????????? Provider ???'
+  return labels[code] || 'Operation failed. Check the network and provider settings.'
 }
 
 async function scrollToBottom() {
@@ -325,38 +325,38 @@ onBeforeUnmount(() => unsubscribers.forEach(unsubscribe => unsubscribe()))
 </script>
 
 <template>
-  <main class="local-app" aria-label="?????????">
+  <main class="local-app" aria-label="Xiaoda local mobile assistant">
     <header class="topbar">
-      <button class="icon-button" type="button" aria-label="??????" @click="historyOpen = true">
+      <button class="icon-button" type="button" aria-label="Open conversation history" @click="historyOpen = true">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10" /></svg>
       </button>
       <div class="brand-block">
         <span class="status-dot" :class="{ ready: configured }"></span>
         <div>
-          <strong>{{ agent.name || '??' }}</strong>
-          <span>{{ configured ? `${activeProvider?.label || ''} ? ${agent.model}` : '??????' }}</span>
+          <strong>{{ agent.name || 'Xiaoda' }}</strong>
+          <span>{{ configured ? `${activeProvider?.label || ''} / ${agent.model}` : 'Model setup required' }}</span>
         </div>
       </div>
-      <button class="icon-button" type="button" aria-label="??????" @click="settingsOpen = true">
+      <button class="icon-button" type="button" aria-label="Open local settings" @click="settingsOpen = true">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6V21h-4v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H3v-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.6V3h4v.1a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.1v4H21a1.7 1.7 0 0 0-1.6 1Z"/></svg>
       </button>
     </header>
 
     <section ref="messageList" class="messages" aria-live="polite">
-      <div v-if="loading" class="center-state"><span class="loader"></span><p>?????????</p></div>
+      <div v-if="loading" class="center-state"><span class="loader"></span><p>Starting the local core...</p></div>
       <div v-else-if="messages.length === 0" class="welcome-card">
         <div class="logo-mark">XD</div>
-        <h1>???????</h1>
-        <p>API Key ?? Android ?????????????????????????????</p>
-        <button v-if="!configured" class="primary-button" type="button" @click="settingsOpen = true">?? Provider</button>
+        <h1>Xiaoda Local</h1>
+        <p>Your API key is encrypted by the Android native layer and is never exposed to the WebView. Configure a model to begin.</p>
+        <button v-if="!configured" class="primary-button" type="button" @click="settingsOpen = true">Configure provider</button>
         <div class="feature-grid">
-          <span>????</span><span>????</span><span>????</span><span>PDF ??</span>
+          <span>Streaming chat</span><span>Local history</span><span>Images</span><span>PDF files</span>
         </div>
       </div>
       <article v-for="message in messages" :key="message.id" class="message" :class="message.role">
-        <div class="message-label">{{ message.role === 'user' ? '?' : message.role === 'assistant' ? agent.name : '??' }}</div>
+        <div class="message-label">{{ message.role === 'user' ? 'You' : message.role === 'assistant' ? agent.name : 'System' }}</div>
         <div class="bubble">
-          <p>{{ message.content }}<span v-if="message.streaming" class="stream-cursor" aria-label="????"></span></p>
+          <p>{{ message.content }}<span v-if="message.streaming" class="stream-cursor" aria-label="Generating"></span></p>
           <time>{{ formatTime(message.timestamp) }}</time>
         </div>
       </article>
@@ -368,74 +368,74 @@ onBeforeUnmount(() => unsubscribers.forEach(unsubscribe => unsubscribe()))
       <div v-if="attachments.length" class="attachment-strip">
         <span v-for="attachment in attachments" :key="attachment.id" class="attachment-chip">
           <span><strong>{{ attachment.name }}</strong><small>{{ formatBytes(attachment.sizeBytes) }}</small></span>
-          <button type="button" :aria-label="`?? ${attachment.name}`" @click="removeAttachment(attachment.id)">?</button>
+          <button type="button" :aria-label="`Remove ${attachment.name}`" @click="removeAttachment(attachment.id)">&times;</button>
         </span>
       </div>
       <div class="composer-row">
-        <button class="attach-button" type="button" aria-label="???????" :disabled="processing" @click="pickAttachment">
+        <button class="attach-button" type="button" aria-label="Add image or document" :disabled="processing" @click="pickAttachment">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m20.5 11.5-8.7 8.7a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7L9 17.4a2 2 0 1 1-2.8-2.8l8.5-8.5"/></svg>
         </button>
-        <textarea v-model="prompt" rows="1" aria-label="????" placeholder="????????" :disabled="processing" @keydown.enter.exact.prevent="sendMessage"></textarea>
-        <button v-if="processing" class="send-button stop" type="button" aria-label="????" @click="stopGeneration"><span></span></button>
-        <button v-else class="send-button" type="button" aria-label="????" :disabled="!canSend" @click="sendMessage">
+        <textarea v-model="prompt" rows="1" aria-label="Message" placeholder="Message Xiaoda..." :disabled="processing" @keydown.enter.exact.prevent="sendMessage"></textarea>
+        <button v-if="processing" class="send-button stop" type="button" aria-label="Stop generation" @click="stopGeneration"><span></span></button>
+        <button v-else class="send-button" type="button" aria-label="Send message" :disabled="!canSend" @click="sendMessage">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 14-8-4 16-3-6-7-2Z"/><path d="m12 14 7-10"/></svg>
         </button>
       </div>
-      <small>????????????????</small>
+      <small>AI responses may be inaccurate. Verify important information.</small>
     </footer>
 
     <div v-if="historyOpen" class="overlay" @click.self="historyOpen = false">
-      <aside class="sheet history-sheet" aria-label="????">
-        <div class="sheet-header"><div><span>????</span><h2>????</h2></div><button class="text-button" type="button" @click="newSession">??</button></div>
+      <aside class="sheet history-sheet" aria-label="Conversation history">
+        <div class="sheet-header"><div><span>On-device records</span><h2>Conversation history</h2></div><button class="text-button" type="button" @click="newSession">New</button></div>
         <div class="session-list">
           <div v-for="session in sessions" :key="session.id" class="session-row" :class="{ active: session.id === currentSessionId }">
-            <button type="button" @click="openSession(session.id)"><strong>{{ session.title }}</strong><span>{{ session.messageCount }} ??? ? {{ new Date(session.updatedAt).toLocaleDateString('zh-CN') }}</span></button>
-            <button class="delete-button" type="button" :aria-label="`???? ${session.title}`" @click="removeSession(session.id)">??</button>
+            <button type="button" @click="openSession(session.id)"><strong>{{ session.title }}</strong><span>{{ session.messageCount }} messages / {{ new Date(session.updatedAt).toLocaleDateString() }}</span></button>
+            <button class="delete-button" type="button" :aria-label="`Delete conversation ${session.title}`" @click="removeSession(session.id)">Delete</button>
           </div>
         </div>
       </aside>
     </div>
 
     <div v-if="settingsOpen" class="overlay" @click.self="settingsOpen = false">
-      <aside class="sheet settings-sheet" aria-label="??????">
-        <div class="sheet-header"><div><span>??????</span><h2>Provider ? Agent</h2></div><button class="close-button" type="button" aria-label="????" @click="settingsOpen = false">?</button></div>
+      <aside class="sheet settings-sheet" aria-label="Local model settings">
+        <div class="sheet-header"><div><span>On-device configuration</span><h2>Provider and agent</h2></div><button class="close-button" type="button" aria-label="Close settings" @click="settingsOpen = false">&times;</button></div>
 
         <section class="settings-section">
           <h3>Provider</h3>
-          <div class="segmented" role="group" aria-label="Provider ??">
-            <button type="button" :class="{ active: providerForm.format === 'openai' }" @click="applyProviderPreset('openai')">OpenAI ??</button>
+          <div class="segmented" role="group" aria-label="Provider format">
+            <button type="button" :class="{ active: providerForm.format === 'openai' }" @click="applyProviderPreset('openai')">OpenAI compatible</button>
             <button type="button" :class="{ active: providerForm.format === 'anthropic' }" @click="applyProviderPreset('anthropic')">Anthropic</button>
           </div>
-          <label>??<input v-model="providerForm.label" autocomplete="off" /></label>
-          <label>????<input v-model="providerForm.baseUrl" type="url" inputmode="url" autocomplete="url" /></label>
+          <label>Name<input v-model="providerForm.label" autocomplete="off" /></label>
+          <label>Endpoint<input v-model="providerForm.baseUrl" type="url" inputmode="url" autocomplete="url" /></label>
           <label>API Key
-            <span class="password-field"><input v-model="providerForm.apiKey" :type="showApiKey ? 'text' : 'password'" autocomplete="off" :placeholder="providers.some(item => item.id === providerForm.id) ? '?????????' : '??'" /><button type="button" @click="showApiKey = !showApiKey">{{ showApiKey ? '??' : '??' }}</button></span>
+            <span class="password-field"><input v-model="providerForm.apiKey" :type="showApiKey ? 'text' : 'password'" autocomplete="off" :placeholder="providers.some(item => item.id === providerForm.id) ? 'Leave blank to keep the saved key' : 'Required'" /><button type="button" @click="showApiKey = !showApiKey">{{ showApiKey ? 'Hide' : 'Show' }}</button></span>
           </label>
-          <label>??
+          <label>Model
             <input v-model="providerForm.defaultModel" list="local-model-options" autocomplete="off" />
             <datalist id="local-model-options"><option v-for="model in modelOptions" :key="model" :value="model" /></datalist>
           </label>
           <div class="inline-actions">
-            <button class="secondary-button" type="button" :disabled="modelLoading" @click="discoverModels">{{ modelLoading ? '????' : '??????' }}</button>
-            <button class="primary-button" type="button" :disabled="saving" @click="saveProvider">{{ saving ? '????' : '?? Provider' }}</button>
+            <button class="secondary-button" type="button" :disabled="modelLoading" @click="discoverModels">{{ modelLoading ? 'Loading...' : 'Load model list' }}</button>
+            <button class="primary-button" type="button" :disabled="saving" @click="saveProvider">{{ saving ? 'Saving...' : 'Save provider' }}</button>
           </div>
           <div v-if="providers.length" class="provider-list">
-            <button v-for="provider in providers" :key="provider.id" type="button" @click="editProvider(provider)"><span>{{ provider.label }}</span><small>{{ provider.defaultModel }} ? {{ provider.hasApiKey ? '?????' : '????' }}</small></button>
+            <button v-for="provider in providers" :key="provider.id" type="button" @click="editProvider(provider)"><span>{{ provider.label }}</span><small>{{ provider.defaultModel }} / {{ provider.hasApiKey ? 'Key saved' : 'Key missing' }}</small></button>
           </div>
         </section>
 
         <section class="settings-section">
-          <h3>?? Agent</h3>
-          <label>Agent ??<input v-model="agent.name" maxlength="40" /></label>
-          <label>Provider<select v-model="agent.providerId"><option value="" disabled>???</option><option v-for="provider in providers" :key="provider.id" :value="provider.id">{{ provider.label }}</option></select></label>
-          <label>??<input v-model="agent.model" /></label>
-          <label>?????<textarea v-model="agent.systemPrompt" rows="5"></textarea></label>
-          <button class="primary-button full" type="button" :disabled="saving || !providers.length" @click="saveAgent">?? Agent</button>
+          <h3>Base agent</h3>
+          <label>Agent name<input v-model="agent.name" maxlength="40" /></label>
+          <label>Provider<select v-model="agent.providerId"><option value="" disabled>Select a provider</option><option v-for="provider in providers" :key="provider.id" :value="provider.id">{{ provider.label }}</option></select></label>
+          <label>Model<input v-model="agent.model" /></label>
+          <label>System prompt<textarea v-model="agent.systemPrompt" rows="5"></textarea></label>
+          <button class="primary-button full" type="button" :disabled="saving || !providers.length" @click="saveAgent">Save agent</button>
         </section>
 
         <section class="settings-section capability-section">
-          <h3>??????</h3>
-          <div v-for="capability in capabilities" :key="capability.id" class="capability-row"><span>{{ capability.label }}</span><small :class="capability.state">{{ capability.state === 'foundation' ? '???????' : '???' }}</small></div>
+          <h3>Advanced capability migration</h3>
+          <div v-for="capability in capabilities" :key="capability.id" class="capability-row"><span>{{ capability.label }}</span><small :class="capability.state">{{ capability.state === 'foundation' ? 'Foundation ready' : 'Planned' }}</small></div>
         </section>
         <p v-if="error" class="form-error" role="alert">{{ error }}</p>
       </aside>

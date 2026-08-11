@@ -102,7 +102,7 @@ class ProviderClient(
                     content.put(JSONObject().put("type", "image_url").put("image_url", JSONObject().put("url", "data:${attachment.mimeType};base64,$encoded")))
                 }
                 attachments.filter { it.mimeType == "text/plain" }.forEach { attachment ->
-                    content.put(JSONObject().put("type", "text").put("text", "?? ${attachment.name}:\n${String(attachment.bytes, Charsets.UTF_8)}"))
+                    content.put(JSONObject().put("type", "text").put("text", "Attachment ${attachment.name}:\n${String(attachment.bytes, Charsets.UTF_8)}"))
                 }
                 output.put(JSONObject().put("role", message.role).put("content", content))
             }
@@ -130,7 +130,7 @@ class ProviderClient(
                     content.put(JSONObject().put("type", "document").put("source", base64Source(attachment)))
                 }
                 attachments.filter { it.mimeType == "text/plain" }.forEach { attachment ->
-                    content.put(JSONObject().put("type", "text").put("text", "?? ${attachment.name}:\n${String(attachment.bytes, Charsets.UTF_8)}"))
+                    content.put(JSONObject().put("type", "text").put("text", "Attachment ${attachment.name}:\n${String(attachment.bytes, Charsets.UTF_8)}"))
                 }
                 content.put(JSONObject().put("type", "text").put("text", message.content))
                 output.put(JSONObject().put("role", "user").put("content", content))

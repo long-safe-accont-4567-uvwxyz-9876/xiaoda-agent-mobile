@@ -30,7 +30,7 @@ class ProviderClientTest {
             server.enqueue(
                 MockResponse()
                     .setHeader("Content-Type", "text/event-stream")
-                    .setBody("data: {\"choices\":[{\"delta\":{\"content\":\"?\"}}]}\n\ndata: {\"choices\":[{\"delta\":{\"content\":\"?\"}}]}\n\ndata: [DONE]\n\n"),
+                    .setBody("data: {\"choices\":[{\"delta\":{\"content\":\"Hello \"}}]}\n\ndata: {\"choices\":[{\"delta\":{\"content\":\"world\"}}]}\n\ndata: [DONE]\n\n"),
             )
             server.start()
             val provider = LocalProvider("test", "Test", "openai", server.url("/v1").toString().trimEnd('/'), "model-a")
@@ -47,8 +47,8 @@ class ProviderClientTest {
                 onDelta = deltas::add,
             )
 
-            assertEquals("??", result)
-            assertEquals(listOf("?", "?"), deltas)
+            assertEquals("Hello world", result)
+            assertEquals(listOf("Hello ", "world"), deltas)
             val request = server.takeRequest()
             assertEquals("/v1/chat/completions", request.path)
             assertTrue(request.body.readUtf8().contains("\"stream\":true"))

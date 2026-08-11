@@ -54,7 +54,7 @@ class LocalAiController(
         val provider = store.providers().firstOrNull { it.id == providerId } ?: return JSONObject().put("error", "provider_not_found")
         val model = args.optString("model", provider.defaultModel).trim()
         val systemPrompt = args.optString("systemPrompt", DEFAULT_SYSTEM_PROMPT).trim()
-        val name = args.optString("name", "??").trim()
+        val name = args.optString("name", "Xiaoda").trim()
         if (model.isEmpty() || model.length > 160) return JSONObject().put("error", "invalid_model")
         if (systemPrompt.isEmpty() || systemPrompt.length > 20_000) return JSONObject().put("error", "invalid_system_prompt")
         if (name.isEmpty() || name.length > 40) return JSONObject().put("error", "invalid_agent_name")

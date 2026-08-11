@@ -12,13 +12,13 @@ interface LocalCapability {
 
 class LocalCapabilityRegistry {
     private val capabilities = listOf(
-        capability("multi_agent", "? Agent ??", "foundation"),
-        capability("memory", "???????", "foundation"),
-        capability("scheduler", "????", "planned"),
-        capability("browser", "??????", "planned"),
-        capability("python_tools", "Python ?????", "planned"),
-        capability("plugins", "????", "planned"),
-        capability("document_processing", "??????", "foundation"),
+        capability("multi_agent", "Multi-agent orchestration", "foundation"),
+        capability("memory", "Long-term memory and retrieval", "foundation"),
+        capability("scheduler", "Scheduled tasks", "planned"),
+        capability("browser", "Browser automation", "planned"),
+        capability("python_tools", "Local tool adapters", "planned"),
+        capability("plugins", "Local plugins", "planned"),
+        capability("document_processing", "Complex document processing", "foundation"),
     )
 
     fun descriptors(): JSONArray = JSONArray(capabilities.map(LocalCapability::descriptor))
