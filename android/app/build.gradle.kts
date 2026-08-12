@@ -225,6 +225,8 @@ chaquopy {
             install("certifi>=2024.7.0")
             // FastAPI 文件上传（multipart/form-data）依赖 python-multipart。
             install("python-multipart>=0.0.9")
+            // /metrics 端点（web/routers/metrics.py 顶层导入 prometheus_client）。
+            install("prometheus-client>=0.20.0")
             // 注意：jieba 在 PyPI 只有 sdist（无 wheel），Chaquopy 要求 wheel，无法安装。
             // 运行时已全部改为 lazy import + 降级（见 core/jieba_prewarm.py、memory/key_extractor.py）。
             // cryptography：Chaquopy 源最高提供 42.0.8（requirements.txt 为 >=43.0.0），
