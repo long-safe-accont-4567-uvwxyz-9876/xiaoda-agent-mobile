@@ -1,4 +1,4 @@
-﻿"""Android entry point for the full Xiaoda Python backend.
+"""Android entry point for the full Xiaoda Python backend.
 
 This module only adapts process paths and runtime compatibility. The application and
 all API routes are still provided by the original ``web.server`` module.
@@ -96,6 +96,7 @@ def _run_server(host: str, port: int) -> None:
     global _server_error
     try:
         _install_pydantic_compatibility()
+        import asyncio
         import uvicorn
         from web.server import app
 
@@ -109,6 +110,9 @@ def _run_server(host: str, port: int) -> None:
             loop="asyncio",
         )
         server = uvicorn.Server(config)
+        # Python 3.11 在非主线程中运行 asyncio/uvicorn 必须显式绑定一个事件循环，
+        # 否则 uvicorn 无法在 Android 后台线程里监听端口（server.started 恒为 False）。
+        asyncio.set_event_loop(asyncio.new_event_loop())
         _started.set()
         server.run()
         if not server.started and _server_error is None:

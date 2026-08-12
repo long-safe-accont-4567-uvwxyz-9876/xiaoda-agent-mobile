@@ -227,6 +227,9 @@ chaquopy {
             install("python-multipart>=0.0.9")
             // /metrics 端点（web/routers/metrics.py 顶层导入 prometheus_client）。
             install("prometheus-client>=0.20.0")
+            // agent_core/message_processor.py 顶层 ZoneInfo("Asia/Shanghai")；
+            // Android tzdata 非 Python 包内，需显式安装 tzdata 提供 IANA 时区数据库。
+            install("tzdata>=2024.1")
             // 注意：jieba 在 PyPI 只有 sdist（无 wheel），Chaquopy 要求 wheel，无法安装。
             // 运行时已全部改为 lazy import + 降级（见 core/jieba_prewarm.py、memory/key_extractor.py）。
             // cryptography：Chaquopy 源最高提供 42.0.8（requirements.txt 为 >=43.0.0），
