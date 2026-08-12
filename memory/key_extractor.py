@@ -4,8 +4,6 @@
 """
 import re
 
-import jieba
-
 from loguru import logger
 
 # 停用词表（与项目现有 _TOPIC_STOPWORDS 保持一致 + 扩展）
@@ -70,8 +68,8 @@ class KeyExtractor:
         if not text or not text.strip():
             return []
 
-        # jieba 分词
-        tokens = jieba.lcut(text)
+        # jieba 分词；未安装（如 Android/Chaquopy 无 wheel）时降级到 n-gram。
+        tokens = self._split(text)
 
         keys = []
         seen = set()
@@ -101,3 +99,15 @@ class KeyExtractor:
                 break
 
         return keys
+
+    def _split(self, text: str) -> list[str]:
+        """分词：优先 jieba，缺失时降级为按字符 2/3-gram（与项目中其他模块一致）。"""
+        try:
+            import jieba
+            return jieba.lcut(text)
+        except ImportError:
+            tokens = []
+            for n in (2, 3):
+                for i in range(len(text) - n + 1):
+                    tokens.append(text[i:i + n])
+            return tokens

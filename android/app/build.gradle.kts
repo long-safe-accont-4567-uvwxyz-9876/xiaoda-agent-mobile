@@ -221,7 +221,8 @@ chaquopy {
             install("pyyaml>=6.0")
             install("openai>=2.41.0")
             install("certifi>=2024.7.0")
-            install("jieba>=0.42.1")
+            // 注意：jieba 在 PyPI 只有 sdist（无 wheel），Chaquopy 要求 wheel，无法安装。
+            // 运行时已全部改为 lazy import + 降级（见 core/jieba_prewarm.py、memory/key_extractor.py）。
             install("cryptography>=43.0.0")
         }
     }
