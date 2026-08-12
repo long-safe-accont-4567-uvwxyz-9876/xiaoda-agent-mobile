@@ -25,6 +25,9 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # 有界超时：connectedCheck 在无 KVM 或模拟器异常时可能长时间挂起。
+    # 设 100 分钟让失败快速有界、便于下载日志定位根因，而非烧够默认 6 小时。
+    timeout-minutes: 100
     env:
       XIAODA_KEYSTORE_PASSWORD: ${{ secrets.XIAODA_KEYSTORE_PASSWORD }}
       XIAODA_BUILD_PYTHON: python3
