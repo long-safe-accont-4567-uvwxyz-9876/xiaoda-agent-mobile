@@ -97,6 +97,40 @@ async def _audit(request: Request, action: str, detail: str) -> None:
         logger.debug("models.audit_failed: {}", exc, exc_info=True)
 
 
+async def _ensure_core_initialized(request: Request) -> None:
+    """Make a newly configured provider usable without restarting the app."""
+    core = getattr(request.app.state, "core", None)
+    if core is None or getattr(core, "_initialized", True):
+        return
+    logger.info("models.reinitializing_core_after_provider_change")
+    await core.init(reinit=True)
+    if not getattr(core, "_initialized", False):
+        from core.app_exception import ProtocolError
+
+        raise ProtocolError(
+            "provider 已保存，但本地 Agent 初始化失败",
+            code="AGENT_INIT_FAILED",
+            stage="initialize",
+            retryable=True,
+            http_status=500,
+        )
+    try:
+        from web.app_ref import get_start_services
+
+        start_services = get_start_services()
+        if start_services is not None:
+            await start_services(request.app, core)
+    except (ImportError, RuntimeError, OSError, AttributeError, TypeError) as exc:
+        logger.warning("models.start_services_after_reinit_failed error={}", str(exc))
+    registry = getattr(request.app.state, "agent_registry", None)
+    if registry is not None:
+        try:
+            await registry.load_persisted()
+        except (OSError, KeyError, ValueError, RuntimeError, TypeError) as exc:
+            logger.warning("models.registry_refresh_after_reinit_failed error={}", str(exc))
+    logger.info("models.core_reinitialized_after_provider_change")
+
+
 async def _broadcast_changed() -> None:
     try:
         from web.ws_hub import manager
@@ -250,6 +284,7 @@ async def create_provider(body: dict, request: Request) -> Any:
     except Exception as e:
         logger.error("provider.register_failed id={} error={}", pid, str(e))
         raise
+    await _ensure_core_initialized(request)
     await _audit(request, "provider.create", pid)
     await invalidate_discovery_cache()
     await _broadcast_changed()
@@ -365,6 +400,7 @@ async def set_provider_key(pid: str, body: dict, request: Request) -> Any:
     if not record:
         raise HTTPException(404, f"provider {pid} 不存在（内置 provider 的 key 走 .env）")
     await _run_provider_operation(_provider_service(request).set_key(pid, api_key))
+    await _ensure_core_initialized(request)
     await _audit(request, "provider.key", pid)
     await invalidate_discovery_cache()
     await _broadcast_changed()

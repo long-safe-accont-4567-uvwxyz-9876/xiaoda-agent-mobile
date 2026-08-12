@@ -1,6 +1,7 @@
 from typing import Any, ClassVar
 import asyncio
 import json
+import os
 import time
 import inspect
 from concurrent.futures import ThreadPoolExecutor
@@ -39,6 +40,7 @@ class ToolExecutor:
     TOOL_TIMEOUTS: ClassVar[dict[str, float]] = {
         "agnes_video_generate": 240,
         "document_reader": 120,
+        "browser_automation": 120,
         "web_browse": 30,           # 网页渲染较慢
         "multi_search": 25,         # 多引擎并发搜索
         "web_search": 15,           # 单次网络搜索
@@ -359,7 +361,7 @@ class ToolExecutor:
 
     # ── 沙箱安全检查 ─────────────────────────────────────────────
     # 需要检查 URL 的网络工具
-    _NETWORK_TOOLS: ClassVar[set[str]] = {"web_browse", "web_search", "multi_search", "web_browse_enhanced"}
+    _NETWORK_TOOLS: ClassVar[set[str]] = {"web_browse", "web_search", "multi_search", "web_browse_enhanced", "browser_automation"}
     # 需要检查路径的文件工具
     _FILE_TOOLS: ClassVar[set[str]] = {"read_file", "write_file", "list_files", "search_files", "document_reader"}
     # 需要检查命令的子进程工具
@@ -469,6 +471,11 @@ class ToolExecutor:
             return None
 
         # shell 工具：命令必须在白名单（黑名单始终生效）
+        # Android python_executor uses restricted in-process execution,
+        # so it neither starts a shell nor accesses an authorized desktop CWD.
+        if tool_name == "python_executor" and os.getenv("XIAODA_MOBILE") == "1":
+            return None
+
         if tool_name in self._WORKSPACE_SHELL_TOOLS:
             # 高权限模式（GOAT/BYPASS/AUTO）跳过"未授权工作目录"墙：
             # 随心模式是最高权限，绝大多数命令可直接执行，无需先授权目录。

@@ -1,4 +1,6 @@
 <resources>
-    <string name="app_name">Xiaoda Agent</string>
-    <string name="web_error">Xiaoda UI could not be loaded.\nVersion: %1$s\nDiagnostic ID: %2$s</string>
+    <string name="app_name">小搭 AI 助手</string>
+    <string name="backend_starting">正在启动手机本地的小搭服务…\n首次启动需要初始化完整运行环境，请稍候。</string>
+    <string name="backend_failed">手机本地服务启动失败：\n\n%1$s</string>
+    <string name="web_error">小搭界面无法加载。\n版本：%1$s\n诊断编号：%2$s</string>
 </resources>

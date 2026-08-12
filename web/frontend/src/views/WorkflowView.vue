@@ -1,17 +1,13 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
 import {
   NButton, NSwitch, NInput, NSelect, NPopconfirm, NTag, NSpin, NEmpty, useMessage,
 } from 'naive-ui'
 import { api, type Workflow, type WorkflowNode, type WorkflowSummary } from '../api'
-import { useChatStore } from '../stores/chat'
 import { t, tf } from '../i18n'
 import Tilt3D from '../components/fx/Tilt3D.vue'
 
 const message = useMessage()
-const router = useRouter()
-const chatStore = useChatStore()
 
 // ── 工作流列表 ──
 const workflows = ref<WorkflowSummary[]>([])
@@ -20,6 +16,8 @@ const editing = ref<Workflow | null>(null)
 const isCreate = ref(false)
 const saving = ref(false)
 const testing = ref(false)
+const runInput = ref('')
+const lastRun = ref<any | null>(null)
 
 // ── 可选资源（从已配置的获取） ──
 const resourceOptions = ref<{
@@ -178,13 +176,14 @@ async function save() {
 
 async function testWorkflow() {
   if (!editing.value || isCreate.value) { message.warning(t('workflowView.saveFirst')); return }
-  if (chatStore.isProcessing) { message.warning(t('workflowView.chatBusy')); return }
   testing.value = true
+  lastRun.value = null
   try {
-    const result = await api.previewWorkflow(editing.value.id)
-    chatStore.sendMessage(result.prompt || JSON.stringify(result))
-    router.push('/')
-    message.success(t('workflowView.sentToChat'))
+    lastRun.value = await api.runWorkflow(editing.value.id, {
+      input: runInput.value, variables: {}, wait: true,
+    })
+    if (lastRun.value.status === 'success') message.success(t('workflowView.runSuccess'))
+    else message.error(tf('workflowView.runFailed', lastRun.value.error || lastRun.value.status))
   } catch (e: any) { message.error(e.message) }
   finally { testing.value = false }
 }
@@ -336,10 +335,33 @@ function onNodeSelect(node: WorkflowNode, value: string) {
         </n-button>
       </div>
 
-      <!-- 操作按钮 -->
+      <!-- Local Android execution -->
+      <Tilt3D v-if="!isCreate" :max-x="3" :max-y="4"><div class="run-panel glass-panel">
+        <div class="run-title">{{ t('workflowView.localRunTitle') }}</div>
+        <n-input v-model:value="runInput" type="textarea" :rows="3"
+                 :placeholder="t('workflowView.runInputPh')" />
+        <div v-if="lastRun" class="run-result">
+          <div class="run-summary">
+            <n-tag size="small" :type="lastRun.status === 'success' ? 'success' : 'error'">
+              {{ tf('workflowView.runStatus', lastRun.status) }}
+            </n-tag>
+            <span>{{ tf('workflowView.runId', lastRun.id) }}</span>
+          </div>
+          <div v-for="node in lastRun.nodes" :key="node.id" class="run-node">
+            <span>{{ node.label || node.id }}</span>
+            <n-tag size="tiny" :type="node.status === 'success' ? 'success' : node.status === 'failed' ? 'error' : 'default'">
+              {{ node.status }}
+            </n-tag>
+            <pre v-if="node.output !== null && node.output !== undefined">{{ typeof node.output === 'string' ? node.output : JSON.stringify(node.output, null, 2) }}</pre>
+            <div v-if="node.error" class="run-error">{{ node.error }}</div>
+          </div>
+        </div>
+      </div></Tilt3D>
+
+      <!-- Actions -->
       <div class="action-bar">
         <n-button @click="cancelEdit">{{ t('workflowView.back') }}</n-button>
-        <n-button type="info" :loading="testing" :disabled="isCreate" @click="testWorkflow">{{ t('workflowView.test') }}</n-button>
+        <n-button type="info" :loading="testing" :disabled="isCreate" @click="testWorkflow">{{ t('workflowView.runLocal') }}</n-button>
         <n-button type="primary" :loading="saving" @click="save">{{ t('workflowView.save') }}</n-button>
       </div>
     </div>
@@ -424,4 +446,13 @@ function onNodeSelect(node: WorkflowNode, value: string) {
 @media (max-width: 768px) {
   .info-row { flex-direction: column; align-items: stretch; }
 }
+
+.run-panel { padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+.run-title { font-weight: 600; color: var(--moon); }
+.run-result { display: flex; flex-direction: column; gap: 8px; }
+.run-summary { display: flex; align-items: center; gap: 8px; color: var(--moon-dim); font-size: 12px; }
+.run-node { padding: 8px; border: 1px solid rgba(127, 214, 80, 0.2); border-radius: 8px; }
+.run-node > span { margin-right: 8px; font-size: 13px; }
+.run-node pre { margin: 6px 0 0; max-height: 180px; overflow: auto; white-space: pre-wrap; font-size: 12px; }
+.run-error { margin-top: 6px; color: #d96a5f; font-size: 12px; }
 </style>

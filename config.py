@@ -269,27 +269,47 @@ def is_data_dir_writable() -> bool:
 
 
 def _init_user_resources() -> None:
-    """frozen 模式下首次运行时，从打包资源（_MEIPASS）复制配置文件到用户目录。
+    """Seed writable user resources for packaged desktop and Android runtimes."""
+    is_frozen = getattr(sys, "frozen", False)
+    is_mobile = os.getenv("XIAODA_MOBILE") == "1"
+    if not is_frozen and not is_mobile:
+        return
 
-    解决问题：agent.json5/workspace 模板打包在 _internal/config/ 里，
-    但用户目录 ~/.ai-agent/data/config/ 首次运行时是空的，导致配置丢失。
-    """
-    if not getattr(sys, 'frozen', False):
-        return
-    meipass = getattr(sys, '_MEIPASS', '')
-    if not meipass:
-        return
-    bundled_config = Path(meipass) / "config"
+    if is_mobile:
+        bundled_config = Path(__file__).resolve().parent / "config"
+    else:
+        meipass = getattr(sys, "_MEIPASS", "")
+        if not meipass:
+            return
+        bundled_config = Path(meipass) / "config"
     if not bundled_config.exists():
+        logger.warning("config.bundled_resources_missing path={}", str(bundled_config))
         return
 
-    # 使用统一的 CONFIG_DIR（与 AGENT_CONFIG_PATH / AGENTS_CONFIG_DIR 同源），
-    # 确保 frozen 模式下配置写入和读取路径一致（Qodo 审查发现）
     user_config_dir = CONFIG_DIR
-
+    _init_static_config_files(bundled_config, user_config_dir)
     _init_agent_json5(bundled_config, user_config_dir)
     _init_agents_subdir(bundled_config, user_config_dir)
     _init_workspace_templates(bundled_config)
+
+
+def _init_static_config_files(bundled_config: Path, user_config_dir: Path) -> None:
+    """Copy defaults required at runtime without overwriting user customizations."""
+    names = (
+        "agent_routing.json",
+        "agent_routing_v2.json",
+        "persona_levels.yaml",
+        "provider_metadata.json",
+        "security_patterns.yaml",
+    )
+    for name in names:
+        source = bundled_config / name
+        target = user_config_dir / name
+        if source.exists() and not target.exists():
+            try:
+                shutil.copy2(source, target)
+            except (OSError, shutil.Error) as exc:
+                logger.warning("config.default_copy_failed file={} error={}", name, str(exc))
 
 
 def _init_agent_json5(bundled_config: Path, user_config_dir: Path) -> None:
@@ -513,6 +533,10 @@ MEMORY_STATE_DIR.mkdir(parents=True, exist_ok=True)
 # 插件配置目录——启动与鉴权读取，迁系统盘
 PLUGINS_CONFIG_DIR = Path.home() / ".ai-agent" / "plugins"
 PLUGINS_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+# Market and user plugin code stays separate from the read-only APK package.
+# Install it under the app-private HOME so upgrades and restarts can restore it.
+PLUGINS_INSTALL_DIR = Path.home() / ".ai-agent" / "plugin_packages"
+PLUGINS_INSTALL_DIR.mkdir(parents=True, exist_ok=True)
 # 子 Agent 配置目录（人格文件、配置 JSON）
 # 从统一 CONFIG_DIR 派生，确保与 AGENT_CONFIG_PATH 和 _init_user_resources 同源
 AGENTS_CONFIG_DIR = CONFIG_DIR / "agents"
@@ -1280,6 +1304,7 @@ __all__ = [
     "MEMORY_WARM_VEC_WEIGHT",
     "MODEL_NAME",
     "PLUGINS_CONFIG_DIR",
+    "PLUGINS_INSTALL_DIR",
     "PROMPT_CACHING_ENABLED",
     "QUERY_EXPAND_COUNT",
     "QUERY_TRANSFORM_ENABLED",

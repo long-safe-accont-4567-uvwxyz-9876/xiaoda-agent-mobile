@@ -51,8 +51,16 @@ class AgentCoreBootstrapper:
         from config import MIMO_API_KEY as _mimo_key
         from utils.encrypted_credential import reveal_credential
         _mimo_key = reveal_credential(_mimo_key)
-        if not _mimo_key or not _mimo_key.strip():
-            logger.warning("agent_core.degraded_mode reason=no_mimo_api_key")
+        _has_provider_credential = bool(_mimo_key and _mimo_key.strip())
+        if not _has_provider_credential:
+            try:
+                from web._provider_keys import has_persisted_provider_credential
+
+                _has_provider_credential = has_persisted_provider_credential()
+            except (ImportError, OSError, ValueError, TypeError) as exc:
+                logger.debug("agent_core.provider_credential_check_failed error={}", str(exc))
+        if not _has_provider_credential:
+            logger.warning("agent_core.degraded_mode reason=no_provider_credential")
             if not reinit:
                 # 首次降级启动：初始化基础设施
                 try:

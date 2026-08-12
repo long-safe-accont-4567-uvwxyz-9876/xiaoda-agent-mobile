@@ -67,6 +67,13 @@ android/**/*.pem
 android/**/*.der
 android/**/*.key
 
+# Android 发布签名（keystore 与密码不入库）
+android/**/keystore/
+
+# Android 内嵌 Python 的本地 pip 轮子缓存（CI 会重新解析依赖）
+android/**/python-packages/
+android/app/src/main/python/__pycache__/
+
 # 测试泄漏到仓库根目录的 mock 产物（MagicMock 的 db_path 残留）
 <MagicMock*
 

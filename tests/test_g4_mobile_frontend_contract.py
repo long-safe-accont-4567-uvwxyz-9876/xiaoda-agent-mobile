@@ -21,30 +21,22 @@ def test_all_g4_routes_are_covered_by_shared_mobile_styles():
     assert "overflow-x: clip" in css
 
 
-def test_terminal_component_is_mobile_sheet_and_keeps_sessions_alive():
-    source = (FRONTEND / "components" / "chat" / "ChatTerminal.vue").read_text(encoding="utf-8")
-    assert "visualViewport" in source
-    assert "aria-modal=\"true\"" in source
-    assert "term-sheet-scrim" in source
-    assert "sheet-height" in source
-    assert "confirm" in source.lower()
-    assert 'v-show="panelOpen"' in source
-    assert "safe-area-inset-bottom" in source
-    assert "terminal_started" in source
-    assert "terminal_error" in source
-    assert "starting" in source
-    assert "orientationchange" in source
-    assert "terminal_resize" in source
+def test_terminal_is_desktop_only_and_not_mounted_for_mobile():
+    """终端仅在桌面 Web 挂载；移动断点与 Android WebView 均不挂载。
 
-
-def test_terminal_sheet_has_disconnect_and_accessibility_contract():
-    source = (FRONTEND / "components" / "chat" / "ChatTerminal.vue").read_text(encoding="utf-8")
-    for token in [
-        "ws_disconnected", "trapFocus", "aria-live=\"polite\"",
-        "role=\"tablist\"", "role=\"tab\"", ":aria-selected",
-        "@keydown=\"handlePanelKeydown\"", "@keydown=\"handleTabKeydown",
-    ]:
-        assert token in source
+    依据 ADR-MOB2-009/010：生产移动终端已取消，ChatTerminal 组件保留给
+    桌面 Web。防复活契约：ChatView 在 mobileWebBuild 构建下将 ChatTerminal
+    置为 null，且移动断点/Android WebView 下 terminalAvailable 为 false。
+    """
+    chat_view = (FRONTEND / "views" / "ChatView.vue").read_text(encoding="utf-8")
+    assert "mobileWebBuild" in chat_view
+    assert "import.meta.env.VITE_XIAODA_MOBILE_BUILD" in chat_view
+    assert "ChatTerminal = mobileWebBuild ? null" in chat_view
+    assert "terminalAvailable" in chat_view
+    assert "!androidWebView" in chat_view or "!isAndroidWebView()" in chat_view
+    # 移动键盘适配特征不应出现在桌面终端组件中
+    terminal = (FRONTEND / "components" / "chat" / "ChatTerminal.vue").read_text(encoding="utf-8")
+    assert "visualViewport" not in terminal
 
 
 def test_agent_shell_execution_isolated_from_interactive_terminal():

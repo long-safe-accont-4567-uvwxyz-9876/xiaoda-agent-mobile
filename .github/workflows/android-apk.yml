@@ -25,6 +25,9 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      XIAODA_KEYSTORE_PASSWORD: ${{ secrets.XIAODA_KEYSTORE_PASSWORD }}
+      XIAODA_BUILD_PYTHON: python3
     defaults:
       run:
         working-directory: android
@@ -33,12 +36,30 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Provision release keystore (if secret present)
+        shell: bash
+        run: |
+          if [ -n "${{ secrets.XIAODA_KEYSTORE_BASE64 }}" ]; then
+            mkdir -p keystore
+            echo "${{ secrets.XIAODA_KEYSTORE_BASE64 }}" | base64 -d > keystore/xiaoda-release.jks
+            test -s keystore/xiaoda-release.jks
+            echo "release keystore provisioned"
+          else
+            echo "no keystore secret; release/staging will fall back to debug signing"
+          fi
+
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
           cache: gradle
+
+      - name: Set up Python 3.11 (Chaquopy build interpreter)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -57,8 +78,8 @@ jobs:
       - name: Verify APK scanner tests
         run: python -m unittest discover -s scripts -p "test_*.py" -v
 
-      - name: Lint, test, and assemble variants
-        run: ./gradlew lint test assembleDebug assembleStaging assembleRelease
+      - name: Lint, test, and assemble variants (APK + signed AAB)
+        run: ./gradlew lint test assembleDebug assembleStaging assembleRelease bundleRelease
 
       - name: Enable KVM acceleration
         run: |
@@ -86,8 +107,19 @@ jobs:
       - name: Verify bundled web assets
         run: python scripts/verify_web_assets.py app/build/generated/webAssets "$(python ../scripts/project_version.py)"
 
-      - name: Generate APK checksums
-        run: sha256sum app/build/outputs/apk/*/*.apk > app/build/outputs/apk/SHA256SUMS
+      - name: Generate SBOM and NOTICE
+        run: |
+          python ../scripts/generate_sbom.py app/build/release-artifacts
+          test -f app/build/release-artifacts/sbom.spdx.json
+          test -f app/build/release-artifacts/NOTICE
+
+      - name: Generate APK and AAB checksums
+        run: >
+          sha256sum app/build/outputs/apk/*/*.apk
+          app/build/outputs/bundle/release/app-release.aab
+          app/build/release-artifacts/sbom.spdx.json
+          app/build/release-artifacts/NOTICE
+          > app/build/outputs/apk/SHA256SUMS
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
@@ -116,5 +148,17 @@ jobs:
           path: |
             android/app/build/outputs/apk/release/app-release.apk
             android/app/build/outputs/apk/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload release metadata (AAB, SBOM, NOTICE, R8 mapping)
+        uses: actions/upload-artifact@v4
+        with:
+          name: xiaoda-android-release-metadata-${{ github.sha }}
+          path: |
+            android/app/build/outputs/bundle/release/app-release.aab
+            android/app/build/release-artifacts/sbom.spdx.json
+            android/app/build/release-artifacts/NOTICE
+            android/app/build/outputs/mapping/release/mapping.txt
           if-no-files-found: error
           retention-days: 14

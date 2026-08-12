@@ -961,7 +961,7 @@ class MemoryManager:
         if not fts_items and not vec_items and not kg_items and not child_items and not spread_items and not entity_items and not kg_v2_items:
             # Fallback: 用相同 FTS+Vec 检索，但 include_raw（is_raw=0 和 is_raw=1 都返回）
             raw_fts, raw_vec = await asyncio.gather(
-                self._hybrid_fts_search_scoped(query, recall_limit, scope, is_raw_filter=None),
+                self._hybrid_fts_search_scoped(query, recall_limit, scope, is_raw=None),
                 self._hybrid_vec_search(query, recall_limit, candidate_ids=candidate_ids, is_raw=None, scope=scope),
             )
             raw_results = (raw_fts or []) + (raw_vec or [])

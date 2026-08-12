@@ -1,4 +1,0 @@
-<resources>
-    <string name="remote_endpoint" translatable="false">https://agent.xiaoda.invalid</string>
-    <bool name="allow_development_endpoints">false</bool>
-</resources>

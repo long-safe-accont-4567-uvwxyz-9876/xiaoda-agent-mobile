@@ -1,6 +1,7 @@
 [versions]
 agp = "8.9.2"
 kotlin = "2.1.20"
+chaquopy = "17.0.0"
 compileSdk = "35"
 minSdk = "26"
 targetSdk = "35"
@@ -9,10 +10,10 @@ appcompat = "1.7.0"
 webkit = "1.12.1"
 junit = "4.13.2"
 json = "20251224"
-okhttp = "4.12.0"
 androidxTestExt = "1.2.1"
 androidxTestCore = "1.6.1"
 androidxTestRunner = "1.6.2"
+okhttp = "4.12.0"
 
 [libraries]
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "androidxCore" }
@@ -20,12 +21,13 @@ androidx-appcompat = { module = "androidx.appcompat:appcompat", version.ref = "a
 androidx-webkit = { module = "androidx.webkit:webkit", version.ref = "webkit" }
 junit = { module = "junit:junit", version.ref = "junit" }
 json-jvm = { module = "org.json:json", version.ref = "json" }
-okhttp-mockwebserver = { module = "com.squareup.okhttp3:mockwebserver", version.ref = "okhttp" }
 androidx-test-ext-junit = { module = "androidx.test.ext:junit", version.ref = "androidxTestExt" }
 androidx-test-core = { module = "androidx.test:core", version.ref = "androidxTestCore" }
 androidx-test-runner = { module = "androidx.test:runner", version.ref = "androidxTestRunner" }
+okhttp-mockwebserver = { module = "com.squareup.okhttp3:mockwebserver", version.ref = "okhttp" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
 android-library = { id = "com.android.library", version.ref = "agp" }
 kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
+chaquopy = { id = "com.chaquo.python", version.ref = "chaquopy" }

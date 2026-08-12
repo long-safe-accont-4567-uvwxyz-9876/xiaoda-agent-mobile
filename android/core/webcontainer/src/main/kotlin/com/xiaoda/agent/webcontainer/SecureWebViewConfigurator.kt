@@ -10,9 +10,13 @@ object SecureWebViewConfigurator {
             javaScriptEnabled = true
             allowFileAccess = false
             allowContentAccess = false
-            domStorageEnabled = false
+            // The original Vue UI persists language and display preferences here.
+            // Authentication tokens still stay in Android Keystore via the native bridge.
+            domStorageEnabled = true
             databaseEnabled = false
-            mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+            // The trusted HTTPS appassets origin talks only to the fixed loopback
+            // backend. Network Security Config rejects cleartext for every other host.
+            mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
             javaScriptCanOpenWindowsAutomatically = false
             setSupportMultipleWindows(false)
         }

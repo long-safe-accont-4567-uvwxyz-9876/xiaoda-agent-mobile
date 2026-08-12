@@ -105,6 +105,17 @@ class AndroidBuildContractTest(unittest.TestCase):
         self.assertIn('put("sizeBytes"', activity)
         self.assertNotIn('put("uri", uri.toString())', activity)
 
+    def test_webview_storage_and_loopback_transport_support_original_ui(self):
+        configurator = (ROOT / "core" / "webcontainer" / "src" / "main" / "kotlin" / "com" / "xiaoda" / "agent" / "webcontainer" / "SecureWebViewConfigurator.kt").read_text(encoding="utf-8")
+        manifest = (ROOT / "app" / "src" / "main" / "AndroidManifest.xml").read_text(encoding="utf-8")
+        network = (ROOT / "app" / "src" / "main" / "res" / "xml" / "network_security_config.xml").read_text(encoding="utf-8")
+
+        self.assertIn("domStorageEnabled = true", configurator)
+        self.assertIn("MIXED_CONTENT_ALWAYS_ALLOW", configurator)
+        self.assertIn('android:networkSecurityConfig="@xml/network_security_config"', manifest)
+        self.assertIn('<domain includeSubdomains="false">127.0.0.1</domain>', network)
+        self.assertIn('<base-config cleartextTrafficPermitted="false" />', network)
+
     def test_runtime_manifest_is_verified_before_main_ui_loads(self):
         activity = (ROOT / "app" / "src" / "main" / "kotlin" / "com" / "xiaoda" / "agent" / "MainActivity.kt").read_text(encoding="utf-8")
 
@@ -170,17 +181,19 @@ class AndroidBuildContractTest(unittest.TestCase):
         for mobile_terminal_marker in ("sheetHeight", "visualViewport", "isMobileViewport", "@media (max-width: 767px)"):
             self.assertNotIn(mobile_terminal_marker, terminal)
 
-    def test_mock_webserver_activity_integration_is_present(self):
+    def test_embedded_python_backend_integration_is_present(self):
         catalog = (ROOT / "gradle" / "libs.versions.toml").read_text(encoding="utf-8")
         app_script = (ROOT / "app" / "build.gradle.kts").read_text(encoding="utf-8")
-        test_file = ROOT / "app" / "src" / "androidTest" / "kotlin" / "com" / "xiaoda" / "agent" / "MainActivityMockWebServerTest.kt"
+        runtime = (ROOT / "app" / "src" / "main" / "kotlin" / "com" / "xiaoda" / "agent" / "LocalBackendRuntime.kt").read_text(encoding="utf-8")
+        test_file = ROOT / "app" / "src" / "androidTest" / "kotlin" / "com" / "xiaoda" / "agent" / "MainActivityLocalBackendTest.kt"
 
-        self.assertIn("mockwebserver", catalog.lower())
-        self.assertIn("androidTestImplementation(libs.okhttp.mockwebserver)", app_script)
+        self.assertIn("chaquopy", catalog.lower())
+        self.assertIn("alias(libs.plugins.chaquopy)", app_script)
+        self.assertIn('val endpoint: String = "http://127.0.0.1:$PORT"', runtime)
         self.assertTrue(test_file.is_file())
         source = test_file.read_text(encoding="utf-8")
-        self.assertIn("ActivityScenario", source)
-        self.assertIn("MockWebServer", source)
+        self.assertIn("embeddedPythonStartsTheOriginalFastApiRouteSet", source)
+        self.assertIn('requestJson("GET", "${LocalBackendRuntime.endpoint}/openapi.json")', source)
 
 
 if __name__ == "__main__":

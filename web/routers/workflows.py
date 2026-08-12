@@ -10,7 +10,7 @@ from typing import Any
 import json
 import re
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from loguru import logger
 
 from web.schemas import Envelope
@@ -286,3 +286,89 @@ async def preview_workflow(wf_id: str) -> Any:
         raise HTTPException(500, f"工作流文件读取失败: {e}") from None
     prompt = generate_workflow_prompt(wf)
     return Envelope(data={"prompt": prompt})
+
+
+def _workflow_engine(request: Request) -> Any:
+    """Return the process-local workflow engine for this FastAPI app."""
+    engine = getattr(request.app.state, "workflow_engine", None)
+    if engine is None:
+        from web.workflow_engine import WorkflowEngine
+
+        engine = WorkflowEngine(request.app.state.core)
+        request.app.state.workflow_engine = engine
+    return engine
+
+
+@router.get("/workflow-runs", response_model=Envelope[list[dict]])
+async def list_workflow_runs(
+    request: Request,
+    workflow_id: str = "",
+    limit: int = Query(default=50, ge=1, le=200),
+) -> Any:
+    """List workflow runs persisted in app-private storage."""
+    return Envelope(data=_workflow_engine(request).list_runs(workflow_id=workflow_id, limit=limit))
+
+
+@router.post("/workflows/{wf_id}/run", response_model=Envelope[dict])
+async def run_workflow(wf_id: str, body: dict, request: Request) -> Any:
+    """Start a workflow locally; wait for the final result when ``wait=true``."""
+    wf_id = _safe_wf_id(wf_id)
+    fp = _wf_path(wf_id)
+    if not fp.exists():
+        raise HTTPException(404, f"工作流 {wf_id} 不存在")
+    try:
+        workflow = json.loads(fp.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise HTTPException(500, f"工作流文件读取失败: {exc}") from None
+    if not workflow.get("enabled", True):
+        raise HTTPException(409, f"工作流 {wf_id} 已禁用")
+    variables = body.get("variables") or {}
+    if not isinstance(variables, dict):
+        raise HTTPException(400, "variables 必须是对象")
+    try:
+        result = await _workflow_engine(request).start(
+            workflow,
+            input_text=str(body.get("input") or ""),
+            variables=variables,
+            user_id=str(body.get("user_id") or "webui"),
+            wait=bool(body.get("wait", False)),
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
+    except Exception as exc:
+        from web.workflow_engine import WorkflowExecutionError
+
+        if isinstance(exc, WorkflowExecutionError):
+            raise HTTPException(400, str(exc)) from None
+        raise
+    return Envelope(data=result)
+
+
+@router.get("/workflow-runs/{run_id}", response_model=Envelope[dict])
+async def get_workflow_run(run_id: str, request: Request) -> Any:
+    """Return a local workflow run and per-node status."""
+    try:
+        return Envelope(data=_workflow_engine(request).get(run_id))
+    except KeyError:
+        raise HTTPException(404, f"运行 {run_id} 不存在") from None
+    except Exception as exc:
+        from web.workflow_engine import WorkflowExecutionError
+
+        if isinstance(exc, WorkflowExecutionError):
+            raise HTTPException(400, str(exc)) from None
+        raise
+
+
+@router.post("/workflow-runs/{run_id}/cancel", response_model=Envelope[dict])
+async def cancel_workflow_run(run_id: str, request: Request) -> Any:
+    """Cancel a workflow still running in the current app process."""
+    try:
+        return Envelope(data=await _workflow_engine(request).cancel(run_id))
+    except KeyError:
+        raise HTTPException(404, f"运行 {run_id} 不存在") from None
+    except Exception as exc:
+        from web.workflow_engine import WorkflowExecutionError
+
+        if isinstance(exc, WorkflowExecutionError):
+            raise HTTPException(400, str(exc)) from None
+        raise

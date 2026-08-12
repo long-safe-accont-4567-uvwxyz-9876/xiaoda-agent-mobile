@@ -238,6 +238,34 @@ BUILTIN_TOOLS: list[dict[str, Any]] = [
         "module_path": "tools.web_browse_enhanced",
         "func_name": "web_browse_enhanced",
     },
+    # ── tools.android_browser_tools（Android 本地 WebView 自动化）──────
+    {
+        "name": "browser_automation",
+        "description": (
+            "使用手机本地 Android WebView 自动操作网页。支持 open/read/click/type/"
+            "evaluate/scroll/back/reload/screenshot/state/close；页面和截图只在手机本地处理。"
+        ),
+        "schema": {
+            "type": "object",
+            "properties": {
+                "action": {"type": "string", "enum": ["open", "read", "click", "type", "evaluate", "scroll", "back", "reload", "screenshot", "state", "close"], "description": "要执行的浏览器动作"},
+                "url": {"type": "string", "description": "open 动作要访问的 http/https URL"},
+                "selector": {"type": "string", "description": "read/click/type 使用的 CSS 选择器"},
+                "value": {"type": "string", "description": "type 动作要输入的文本"},
+                "script": {"type": "string", "description": "evaluate 动作执行的 JavaScript"},
+                "delta_y": {"type": "integer", "description": "滚动的垂直像素", "default": 600},
+                "name": {"type": "string", "description": "截图的本地文件名"},
+                "max_chars": {"type": "integer", "description": "read 返回的最大字符数", "default": 20000},
+                "timeout_ms": {"type": "integer", "description": "动作超时毫秒数", "default": 30000},
+            },
+            "required": ["action"],
+        },
+        "permission": ToolPermission.EXECUTE,
+        "category": "web",
+        "max_frequency": 20,
+        "module_path": "tools.android_browser_tools",
+        "func_name": "browser_automation",
+    },
     # ── tools.multi_search_tools ─────────────────────────────────────
     {
         "name": "wolfram_query",

@@ -586,6 +586,17 @@ class AgentRegistry:
             kwargs.update(normalize_wallpaper_fields(data))
         kwargs["name"] = name
         kwargs["excluded_tools"] = set(kwargs.get("excluded_tools") or [])
+        provider = str(kwargs.get("provider") or "").strip()
+        if provider and (not kwargs.get("base_url") or not kwargs.get("api_key_env")):
+            # The create UI selects provider/model but intentionally omits advanced
+            # fields. Resolve the encrypted provider credential locally so a newly
+            # created Agent is immediately usable instead of being persisted in a
+            # degraded state until the user edits its model a second time.
+            base_url, api_key_env = self._resolve_provider_info(provider)
+            if not kwargs.get("base_url"):
+                kwargs["base_url"] = base_url
+            if not kwargs.get("api_key_env"):
+                kwargs["api_key_env"] = api_key_env
         if personality_text:
             from config import reverse_agent_name_replacements
             personality_text = reverse_agent_name_replacements(personality_text)
@@ -925,7 +936,7 @@ class AgentRegistry:
 
         # 自定义 provider → 从 config_service 读取
         from web.config_service import get_config_service
-        from web.routers.models import load_provider_key
+        from web._provider_keys import load_provider_key
         cfg = get_config_service()
         record = cfg.get(f"models.providers.{provider}")
         if not record:

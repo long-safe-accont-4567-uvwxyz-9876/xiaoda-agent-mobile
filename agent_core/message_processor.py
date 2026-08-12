@@ -270,6 +270,8 @@ class MessageProcessorMixin:
         is_owner: bool,
         ctx: RequestContext,
         user_input: str,
+        status_callback: Any = None,
+        stream_state: dict[str, Any] | None = None,
     ) -> tuple[str, list]:
         """Harness 验收循环：工具执行 → 结果回填 → 模型验收 → 循环。
 
@@ -566,6 +568,7 @@ class MessageProcessorMixin:
                 await self._call_and_parse_verification_llm(
                     messages, _effective_tools, task_type, temperature, max_tokens,
                     user_openid, session_id, trace, turn_idx, loop_start,
+                    status_callback=status_callback, stream_state=stream_state,
                 )
             if early_reply is not None:
                 return early_reply, all_tool_results
@@ -1437,12 +1440,16 @@ class MessageProcessorMixin:
         tool_results = []
         try:
             _llm_t0 = time.time()
-            if STREAM_TEXT_PUSH and status_callback and not tools:
-                logger.info("pipeline.llm_call.start mode=stream task_type={}", task_type)
-                result = await self._stream_llm_response(
-                    messages, status_callback=status_callback, task_type=task_type,
+            stream_state: dict[str, Any] | None = {"parts": []} if STREAM_TEXT_PUSH and status_callback else None
+            if STREAM_TEXT_PUSH and status_callback:
+                logger.info("pipeline.llm_call.start mode=stream_with_tools task_type={} tool_count={}",
+                            task_type, len(tools or []))
+                result = await self._stream_llm_response_with_tools(
+                    messages, status_callback=status_callback, stream_state=stream_state,
+                    task_type=task_type,
                     temperature=_get_temperature(_model_cfg),
                     max_tokens=_cb_max_tokens,
+                    tools=tools, tool_choice="auto" if tools else None,
                     user_openid=user_openid, session_id=session_id,
                 )
             else:
@@ -1469,6 +1476,7 @@ class MessageProcessorMixin:
                 max_tokens=_cb_max_tokens,
                 user_openid=user_openid, session_id=session_id,
                 is_owner=is_owner, ctx=ctx, user_input=user_input,
+                status_callback=status_callback, stream_state=stream_state,
             )
             logger.info("pipeline.verification.done elapsed_ms={} reply_len={} tool_count={}",
                         int((time.time() - _verify_t0) * 1000),
@@ -1765,7 +1773,8 @@ class MessageProcessorMixin:
 
     async def _call_and_parse_verification_llm(self, messages: Any, tools: Any, task_type: Any, temperature: Any,
                                                 max_tokens: Any, user_openid: Any, session_id: Any, trace: Any,
-                                                turn_idx: Any, loop_start: Any) -> tuple:
+                                                turn_idx: Any, loop_start: Any, status_callback: Any = None,
+                                                stream_state: dict[str, Any] | None = None) -> tuple:
         """验收循环中再次调用 LLM 并解析结果。
 
         返回 (tool_calls, content, reasoning, early_reply)。
@@ -1778,8 +1787,15 @@ class MessageProcessorMixin:
             return None, "", None, None
 
         try:
-            current_result = await asyncio.wait_for(
-                self.router.route(
+            if STREAM_TEXT_PUSH and status_callback:
+                current_call = self._stream_llm_response_with_tools(
+                    messages, status_callback=status_callback, stream_state=stream_state,
+                    task_type=task_type, temperature=temperature, max_tokens=max_tokens,
+                    tools=tools, tool_choice="auto" if tools else None,
+                    user_openid=user_openid, session_id=session_id,
+                )
+            else:
+                current_call = self.router.route(
                     task_type, messages,
                     temperature=temperature,
                     max_tokens=max_tokens,
@@ -1787,8 +1803,9 @@ class MessageProcessorMixin:
                     tool_choice="auto" if tools else None,
                     user_openid=user_openid,
                     session_id=session_id,
-                ),
-                timeout=min(self.LLM_CALL_TIMEOUT, remaining),
+                )
+            current_result = await asyncio.wait_for(
+                current_call, timeout=min(self.LLM_CALL_TIMEOUT, remaining),
             )
         except TimeoutError:
             trace.warning("verification.llm_timeout", turn=turn_idx)
@@ -1974,6 +1991,32 @@ class MessageProcessorMixin:
         else:
             final_reply = DEGRADED_REPLY
         return final_reply, all_tool_results
+
+    async def _stream_llm_response_with_tools(
+        self, messages: list, status_callback: Any = None,
+        stream_state: dict[str, Any] | None = None,
+        task_type: str = "chat", **kwargs: Any,
+    ) -> Any:
+        """Stream text while reconstructing tool calls for the verification loop."""
+        state = stream_state if stream_state is not None else {"parts": []}
+        parts = state.setdefault("parts", [])
+
+        async def on_delta(delta: str) -> None:
+            if not delta:
+                return
+            parts.append(delta)
+            if status_callback:
+                callback_result = status_callback({
+                    "type": "stream_text",
+                    "delta": delta,
+                    "accumulated": "".join(parts),
+                })
+                if hasattr(callback_result, "__await__"):
+                    await callback_result
+
+        return await self.router.chat_stream_response(
+            messages, task_type=task_type, delta_callback=on_delta, **kwargs
+        )
 
     async def _stream_llm_response(self, messages: list, status_callback: Any=None,
                                     task_type: str = "chat", **kwargs: Any) -> str:

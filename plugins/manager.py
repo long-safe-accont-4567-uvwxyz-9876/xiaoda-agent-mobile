@@ -49,7 +49,8 @@ class PluginManager:
     _TRUST_STORE_FILE = Path("config/plugins/trust_store.json")
 
     def __init__(self, tool_registry: Any | None=None, hook_engine: Any | None=None, memory_manager: Any | None=None,
-                 knowledge_graph: Any | None=None, mcp_manager: Any | None=None, agent_core: Any | None=None) -> None:
+                 knowledge_graph: Any | None=None, mcp_manager: Any | None=None, agent_core: Any | None=None,
+                 trust_store_file: str | Path | None = None) -> None:
         self._plugins: dict[str, PluginRecord] = {}
         self._tool_registry = tool_registry
         self._hook_engine = hook_engine
@@ -57,6 +58,14 @@ class PluginManager:
         self._kg = knowledge_graph
         self._mcp = mcp_manager
         self._agent_core = agent_core
+        if trust_store_file is not None:
+            self._trust_store_file = Path(trust_store_file)
+        else:
+            try:
+                from config import PLUGINS_CONFIG_DIR
+                self._trust_store_file = PLUGINS_CONFIG_DIR / "trust_store.json"
+            except ImportError:
+                self._trust_store_file = self._TRUST_STORE_FILE
 
     @property
     def plugins(self) -> dict[str, PluginRecord]:
@@ -73,22 +82,20 @@ class PluginManager:
             h.update(f.read_bytes())
         return h.hexdigest()
 
-    @classmethod
-    def _load_trust_store(cls) -> dict[str, str]:
+    def _load_trust_store(self) -> dict[str, str]:
         """加载信任存储 {plugin_id: expected_sha256}。"""
         try:
-            if cls._TRUST_STORE_FILE.exists():
-                return json.loads(cls._TRUST_STORE_FILE.read_text(encoding="utf-8"))
+            if self._trust_store_file.exists():
+                return json.loads(self._trust_store_file.read_text(encoding="utf-8"))
         except Exception:
             logger.debug("plugin_manager.trust_store_load_failed", exc_info=True)
         return {}
 
-    @classmethod
-    def _save_trust_store(cls, store: dict[str, str]) -> None:
+    def _save_trust_store(self, store: dict[str, str]) -> None:
         """保存信任存储。"""
         try:
-            cls._TRUST_STORE_FILE.parent.mkdir(parents=True, exist_ok=True)
-            cls._TRUST_STORE_FILE.write_text(
+            self._trust_store_file.parent.mkdir(parents=True, exist_ok=True)
+            self._trust_store_file.write_text(
                 json.dumps(store, indent=2, ensure_ascii=False), encoding="utf-8")
         except OSError:
             logger.debug("plugin_manager.trust_store_save_failed", exc_info=True)

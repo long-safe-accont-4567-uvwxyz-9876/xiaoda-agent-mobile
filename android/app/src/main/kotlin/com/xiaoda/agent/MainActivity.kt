@@ -17,6 +17,7 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.webkit.CookieManager
+import android.widget.TextView
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -31,7 +32,6 @@ import com.xiaoda.agent.bridge.SelectedFileReader
 import com.xiaoda.agent.security.KeystoreTokenStore
 import com.xiaoda.agent.security.SessionHandleManager
 import com.xiaoda.agent.webcontainer.BundledAssetLoader
-import com.xiaoda.agent.webcontainer.EndpointPolicy
 import com.xiaoda.agent.webcontainer.SecureWebViewConfigurator
 import com.xiaoda.agent.webcontainer.TrustedNavigationPolicy
 import org.json.JSONObject
@@ -42,6 +42,8 @@ import java.util.UUID
 
 class MainActivity : AppCompatActivity() {
     private lateinit var webView: WebView
+    private lateinit var browserAutomationWebView: WebView
+    private lateinit var backendStatus: TextView
     private lateinit var connectivityManager: ConnectivityManager
     private lateinit var lifecyclePolicy: ConnectionLifecyclePolicy
     private lateinit var sessionHandleManager: SessionHandleManager
@@ -66,20 +68,52 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         webView = findViewById(R.id.web_view)
+        browserAutomationWebView = findViewById(R.id.browser_automation_web_view)
+        backendStatus = findViewById(R.id.backend_status)
         SecureWebViewConfigurator.configure(webView, BuildConfig.WEBVIEW_DEBUGGING)
+        SecureWebViewConfigurator.configure(browserAutomationWebView, BuildConfig.WEBVIEW_DEBUGGING)
+        AndroidBrowserAutomation.initialize(browserAutomationWebView, filesDir)
         lifecyclePolicy = ConnectionLifecyclePolicy(ConnectionLifecycleState(false, false))
         sessionHandleManager = SessionHandleManager(KeystoreTokenStore(applicationContext))
-        val runtimeConfigReady = configureRuntimeConfig()
         configureWebContainer()
         configureBridge()
         configureBackNavigation()
         connectivityManager = getSystemService(ConnectivityManager::class.java)
         refreshNetworkState()
-        val restored = savedInstanceState != null && webView.restoreState(savedInstanceState) != null
-        val deepLinkHandled = handleDeepLink(intent)
         requestNotificationPermission()
-        if (!restored && !deepLinkHandled) {
-            if (runtimeConfigReady && BundledAssetLoader(this).isTrusted(BuildConfig.WEB_ASSET_VERSION)) webView.loadUrl(BundledAssetLoader.START_URL) else showDiagnosticError()
+        startLocalBackend(savedInstanceState)
+    }
+
+
+    private fun startLocalBackend(savedInstanceState: Bundle?) {
+        backendStatus.text = getString(R.string.backend_starting)
+        backendStatus.visibility = android.view.View.VISIBLE
+        LocalBackendRuntime.start(applicationContext) { state ->
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                when (state) {
+                    LocalBackendRuntime.State.Starting -> {
+                        backendStatus.text = getString(R.string.backend_starting)
+                    }
+                    LocalBackendRuntime.State.Ready -> {
+                        backendStatus.visibility = android.view.View.GONE
+                        val runtimeConfigReady = configureRuntimeConfig()
+                        val restored = savedInstanceState != null && webView.restoreState(savedInstanceState) != null
+                        val deepLinkHandled = handleDeepLink(intent)
+                        if (!restored && !deepLinkHandled) {
+                            if (runtimeConfigReady && BundledAssetLoader(this).isTrusted(BuildConfig.WEB_ASSET_VERSION)) {
+                                webView.loadUrl(BundledAssetLoader.START_URL)
+                            } else {
+                                showDiagnosticError()
+                            }
+                        }
+                    }
+                    is LocalBackendRuntime.State.Failed -> {
+                        backendStatus.text = getString(R.string.backend_failed, state.detail)
+                        backendStatus.visibility = android.view.View.VISIBLE
+                    }
+                }
+            }
         }
     }
 
@@ -113,6 +147,12 @@ class MainActivity : AppCompatActivity() {
         pendingFileRequest?.let { it.replyProxy?.postMessage(bridgeError(it.id, "activity_destroyed").toString()) }
         pendingFileRequest = null
         if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) WebViewCompat.removeWebMessageListener(webView, "XiaodaNative")
+        AndroidBrowserAutomation.shutdown()
+        browserAutomationWebView.stopLoading()
+        browserAutomationWebView.webChromeClient = null
+        browserAutomationWebView.webViewClient = WebViewClient()
+        browserAutomationWebView.removeAllViews()
+        browserAutomationWebView.destroy()
         webView.stopLoading()
         webView.webChromeClient = null
         webView.webViewClient = WebViewClient()
@@ -122,7 +162,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun configureRuntimeConfig(): Boolean {
-        val endpoint = remoteEndpoint() ?: return false
+        val endpoint = localEndpoint()
         if (!WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) return false
         val uri = URI(endpoint)
         val websocketScheme = if (uri.scheme.equals("https", ignoreCase = true)) "wss" else "ws"
@@ -139,15 +179,7 @@ class MainActivity : AppCompatActivity() {
         return true
     }
 
-    private val resolvedRemoteEndpoint: String? by lazy(LazyThreadSafetyMode.NONE) {
-        val endpoint = (if (BuildConfig.DEBUG) intent.getStringExtra(EXTRA_REMOTE_ENDPOINT) else null)
-            ?.trim()?.trimEnd('/')
-            ?: getString(R.string.remote_endpoint).trim().trimEnd('/')
-        val policy = EndpointPolicy(resources.getBoolean(R.bool.allow_development_endpoints))
-        endpoint.takeIf(policy::isAllowed)
-    }
-
-    private fun remoteEndpoint(): String? = resolvedRemoteEndpoint
+    private fun localEndpoint(): String = LocalBackendRuntime.endpoint
 
     private fun configureWebContainer() {
         val loader = BundledAssetLoader(this)
@@ -229,7 +261,7 @@ class MainActivity : AppCompatActivity() {
                 val login = postJson("/api/v1/auth/login", JSONObject().put("password", password), null)
                 val token = login.getJSONObject("data").getString("token")
                 sessionHandleManager.create(token)
-                createRemoteSession(token)
+                createBackendSession(token)
             }
             runOnUiThread { replyProxy.postMessage(result.fold({ bridgeReply(id, it) }, { bridgeError(id, "authentication_failed") }).toString()) }
         }.start()
@@ -238,10 +270,10 @@ class MainActivity : AppCompatActivity() {
 
     private fun restoreSession(id: String, replyProxy: JavaScriptReplyProxy): JSONObject? {
         Thread {
-            val result = runCatching { renewRemoteSession() }.recoverCatching {
+            val result = runCatching { renewBackendSession() }.recoverCatching {
                 val handle = sessionHandleManager.restore() ?: throw IllegalStateException("session_unavailable")
                 val token = sessionHandleManager.resolve(handle) ?: throw IllegalStateException("session_unavailable")
-                createRemoteSession(token)
+                createBackendSession(token)
             }
             runOnUiThread { replyProxy.postMessage(result.fold({ bridgeReply(id, it) }, { bridgeError(id, "session_unavailable") }).toString()) }
         }.start()
@@ -250,29 +282,29 @@ class MainActivity : AppCompatActivity() {
 
     private fun clearSession(id: String): JSONObject {
         sessionHandleManager.clear()
-        remoteEndpoint()?.let { endpoint ->
+        localEndpoint().let { endpoint ->
             CookieManager.getInstance().setCookie(endpoint, sessionCookie("", 0))
             CookieManager.getInstance().flush()
         }
         return JSONObject().put("cleared", true)
     }
 
-    private fun createRemoteSession(token: String): JSONObject {
+    private fun createBackendSession(token: String): JSONObject {
         val response = postJson("/api/v1/auth/webview-session", JSONObject(), token)
         val data = response.getJSONObject("data")
         val handle = data.getString("handle")
-        remoteEndpoint()?.let { endpoint ->
+        localEndpoint().let { endpoint ->
             CookieManager.getInstance().setCookie(endpoint, sessionCookie(handle, BuildConfig.SESSION_COOKIE_MAX_AGE_SECONDS))
             CookieManager.getInstance().flush()
         }
         return JSONObject().put("handle", handle).put("expiresAt", data.getDouble("expires_at"))
     }
 
-    private fun renewRemoteSession(): JSONObject {
+    private fun renewBackendSession(): JSONObject {
         val response = postJson("/api/v1/auth/webview-session/renew", JSONObject(), null)
         val data = response.getJSONObject("data")
         val handle = data.getString("handle")
-        remoteEndpoint()?.let { endpoint ->
+        localEndpoint().let { endpoint ->
             CookieManager.getInstance().setCookie(endpoint, sessionCookie(handle, BuildConfig.SESSION_COOKIE_MAX_AGE_SECONDS))
             CookieManager.getInstance().flush()
         }
@@ -280,10 +312,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun sessionCookie(handle: String, maxAgeSeconds: Int): String =
-        "${BuildConfig.SESSION_COOKIE_NAME}=$handle; Max-Age=$maxAgeSeconds; Path=/; Secure; HttpOnly; SameSite=${BuildConfig.SESSION_COOKIE_SAME_SITE}"
+        "${BuildConfig.SESSION_COOKIE_NAME}=$handle; Max-Age=$maxAgeSeconds; Path=/; HttpOnly; SameSite=Lax"
 
     private fun postJson(path: String, body: JSONObject, token: String?): JSONObject {
-        val endpoint = remoteEndpoint() ?: throw IllegalStateException("remote_endpoint_rejected")
+        val endpoint = localEndpoint()
         val connection = URL(endpoint + path).openConnection() as HttpURLConnection
         return try {
             connection.requestMethod = "POST"
@@ -296,7 +328,7 @@ class MainActivity : AppCompatActivity() {
             val status = connection.responseCode
             val stream = if (status in 200..299) connection.inputStream else connection.errorStream
             val text = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
-            if (status !in 200..299) throw IllegalStateException("remote_auth_failed")
+            if (status !in 200..299) throw IllegalStateException("local_auth_failed")
             JSONObject(text)
         } finally {
             connection.disconnect()
@@ -407,6 +439,5 @@ class MainActivity : AppCompatActivity() {
     )
 
     private companion object {
-        const val EXTRA_REMOTE_ENDPOINT = "xiaoda.remoteEndpointOverride"
     }
 }

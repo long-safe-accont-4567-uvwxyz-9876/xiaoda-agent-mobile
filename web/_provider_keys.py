@@ -124,3 +124,22 @@ def migrate_provider_key(provider_id: str) -> bool:
         from utils.atomic_write import atomic_write
         atomic_write(fp, _encode_key(plain) + "\n", mode=0o600)
         return True
+
+def has_persisted_provider_credential() -> bool:
+    """Return whether any configured custom provider has a readable key.
+
+    This deliberately lives below the routers so AgentCore bootstrap can decide
+    whether full local initialization is possible without importing web.server.
+    """
+    try:
+        from web.config_service import get_config_service
+
+        providers = get_config_service().get("models.providers", {}) or {}
+        if not isinstance(providers, dict):
+            return False
+        for provider_id, record in providers.items():
+            if isinstance(record, dict) and record.get("enabled", True) and load_provider_key(provider_id).strip():
+                return True
+    except (ImportError, OSError, ValueError, TypeError) as exc:
+        logger.debug("provider_keys.credential_check_failed error={}", str(exc))
+    return False

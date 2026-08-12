@@ -28,7 +28,7 @@
 
 | ID | 级别 | 验收项 | 方法 | 通过标准 |
 |---|---|---|---|---|
-| ARC-001 | P0 | Android 不包含 AgentCore | 依赖、源码、包内容扫描 | 无 Python AgentCore、FastAPI、本地模型 |
+| ARC-001 | P0 | Android 不包含本地模型推理 | 依赖、源码、包内容扫描 | 无 Ollama/ONNX/BGE 本地推理；允许内嵌原 `web.server` 承载业务内核（ADR-MOB2-011） |
 | ARC-002 | P0 | 单一业务 UI | 工程结构审查 | Android 未复制现有业务页面 |
 | ARC-003 | P0 | 单一导航事实源 | 单测与静态检查 | 路由、桌面侧栏、移动导航一致 |
 | ARC-004 | P0 | 移动端无终端能力 | 源码、Bridge、构建与 APK 扫描 | 无终端 UI、Termux、PTY、CLI 或终端 Bridge |

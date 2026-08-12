@@ -1,6 +1,7 @@
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
+    alias(libs.plugins.chaquopy)
 }
 
 import java.security.MessageDigest
@@ -80,6 +81,10 @@ val verifyGeneratedWebAssets by tasks.registering {
     }
 }
 
+val keystoreFile = rootProject.file("keystore/xiaoda-release.jks")
+val keystorePassword = System.getenv("XIAODA_KEYSTORE_PASSWORD")
+val hasReleaseKey = keystoreFile.exists() && !keystorePassword.isNullOrEmpty()
+
 android {
     namespace = "com.xiaoda.agent"
     compileSdk = libs.versions.compileSdk.get().toInt()
@@ -96,6 +101,20 @@ android {
         buildConfigField("String", "SESSION_COOKIE_NAME", "\"$sessionCookieName\"")
         buildConfigField("int", "SESSION_COOKIE_MAX_AGE_SECONDS", sessionCookieMaxAgeSeconds.toString())
         buildConfigField("String", "SESSION_COOKIE_SAME_SITE", "\"$sessionCookieSameSite\"")
+        ndk {
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
+        }
+    }
+
+    signingConfigs {
+        if (hasReleaseKey) {
+            create("release") {
+                storeFile = keystoreFile
+                storePassword = keystorePassword
+                keyAlias = System.getenv("XIAODA_KEY_ALIAS") ?: "xiaoda"
+                keyPassword = keystorePassword
+            }
+        }
     }
 
     buildTypes {
@@ -108,7 +127,7 @@ android {
             initWith(getByName("release"))
             applicationIdSuffix = ".staging"
             versionNameSuffix = "-staging"
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = if (hasReleaseKey) signingConfigs.getByName("release") else signingConfigs.getByName("debug")
             matchingFallbacks += listOf("release")
             buildConfigField("boolean", "WEBVIEW_DEBUGGING", "false")
         }
@@ -116,7 +135,7 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = if (hasReleaseKey) signingConfigs.getByName("release") else signingConfigs.getByName("debug")
             buildConfigField("boolean", "WEBVIEW_DEBUGGING", "false")
         }
     }
@@ -130,6 +149,27 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+    }
+}
+
+chaquopy {
+    defaultConfig {
+        version = "3.11"
+        // Cross-platform: prefer an explicit env override (CI sets XIAODA_BUILD_PYTHON),
+        // otherwise fall back to the Windows developer path used on this machine.
+        buildPython = (System.getenv("XIAODA_BUILD_PYTHON") ?: "C:/Users/lenovo/AppData/Local/Programs/Python/Python311/python.exe")
+        pip {
+            install("fastapi==0.115.12")
+            install("uvicorn==0.34.0")
+            install("websockets==14.2")
+            install("pydantic==1.10.21")
+            install("httpx==0.28.1")
+        }
+    }
+    sourceSets {
+        getByName("main") {
+            srcDir("src/main/python")
+        }
     }
 }
 

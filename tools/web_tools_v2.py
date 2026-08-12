@@ -23,8 +23,18 @@ def _get_primp_client() -> Any:
     """懒初始化并返回模块级 primp.Client 单例。"""
     global _primp_client
     if _primp_client is None:
-        import primp
-        _primp_client = primp.Client(impersonate="chrome")
+        try:
+            import primp
+            _primp_client = primp.Client(impersonate="chrome")
+        except ImportError:
+            # Android has no primp wheel. httpx keeps the same response surface used
+            # below and performs the request locally without removing web search.
+            import httpx
+            _primp_client = httpx.Client(
+                follow_redirects=True,
+                timeout=20.0,
+                headers={"User-Agent": "Mozilla/5.0 (Linux; Android) Xiaoda/1.0"},
+            )
     return _primp_client
 
 
@@ -37,7 +47,10 @@ def _get_tavily_client() -> Any:
     global _tavily_client
     key = os.getenv("TAVILY_API_KEY", "")
     if _tavily_client is None and key:
-        from tavily import TavilyClient
+        try:
+            from tavily import TavilyClient
+        except ImportError:
+            from tools.tavily_http_client import TavilyHttpClient as TavilyClient
         _tavily_client = TavilyClient(api_key=key)
     return _tavily_client
 

@@ -34,10 +34,9 @@ class UninstallRequest(BaseModel):
 
 def _get_installer(request: Request) -> MarketInstaller:
     """获取 MarketInstaller 实例"""
-    from pathlib import Path
-    from config import WORKSPACE_DIR
+    from config import PLUGINS_INSTALL_DIR, WORKSPACE_DIR
 
-    plugins_dir = Path(__file__).resolve().parent.parent.parent / "plugins"
+    plugins_dir = PLUGINS_INSTALL_DIR
     skills_dir = WORKSPACE_DIR / "skills"
     mcp_config_dir = WORKSPACE_DIR / "mcp_configs"
     plugin_manager = getattr(request.app.state, "plugin_manager", None)
@@ -161,7 +160,7 @@ async def install_plugin(req: InstallRequest, request: Request) -> Any:
 
     if item is None and req.download_url:
         item = MarketItem(
-            id=req.item_id, type="mcp", name=req.item_id,
+            id=req.item_id, type="plugin", name=req.item_id,
             download_url=req.download_url, version=req.version or "0.0.0",
             sha256=req.sha256,
         )

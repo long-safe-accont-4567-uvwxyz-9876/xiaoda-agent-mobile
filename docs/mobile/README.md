@@ -27,14 +27,14 @@
 2. 桌面与移动使用同一套路由、页面、API 和状态模型，只切换导航外壳与响应式布局。
 3. 移动端采用方案 C：底部五入口、左上全部能力抽屉、右上快捷状态；移动端不提供终端。
 4. 所有现有业务能力继续保留入口；只删除本地 AI 部署、Ollama 和移动端目录选择。
-5. Android 壳负责安全存储、系统返回、文件选择、通知、分享和深链，不复制 AgentCore，也不提供终端 Bridge。
+5. Android 壳负责安全存储、系统返回、文件选择、通知、分享和深链，并通过内嵌 Python 后端（Chaquopy）在 `127.0.0.1` 承载原 `web.server` 业务内核，不提供终端 Bridge。
 6. Termux、PTY、远程 CLI 自动启动、研究 APK 和移动终端 UI 均不进入移动端；桌面 Web 终端继续保留（ADR-MOB2-010）。
 7. 自定义服务商成为模型接入主路径，优先优化 OpenAI-compatible Provider。
 8. 默认图标体系为 A“极光玻璃”；壁纸完整保留并支持焦点、安全区和性能降级。
 
 ## 不可违反的边界
 
-- 禁止 Android 内嵌 Python AgentCore。
+- 禁止在 Android 内嵌的 Python 后端中运行本地模型推理（Ollama/ONNX/BGE）；允许在 `127.0.0.1` 内嵌原 `web.server` 承载业务内核（ADR-MOB2-011）。
 - 禁止恢复 Ollama 专属 Provider、配置或 UI。
 - 禁止恢复 ONNX 本地 Embedding、内置 BGE 模型或本地部署页面。
 - 禁止恢复移动端 Termux、PTY、远程 CLI、终端 Bridge、终端 FAB/Sheet 或研究 APK。

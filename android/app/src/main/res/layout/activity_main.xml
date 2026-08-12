@@ -1,5 +1,27 @@
 <?xml version="1.0" encoding="utf-8"?>
-<WebView xmlns:android="http://schemas.android.com/apk/res/android"
-    android:id="@+id/web_view"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="match_parent" />
+    android:layout_height="match_parent">
+
+    <WebView
+        android:id="@+id/browser_automation_web_view"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:importantForAccessibility="noHideDescendants" />
+
+    <WebView
+        android:id="@+id/web_view"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <TextView
+        android:id="@+id/backend_status"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#FFF8F2"
+        android:gravity="center"
+        android:padding="32dp"
+        android:text="@string/backend_starting"
+        android:textColor="#3A2A22"
+        android:textSize="17sp" />
+</FrameLayout>

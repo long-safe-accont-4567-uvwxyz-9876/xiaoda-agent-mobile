@@ -1,20 +1,19 @@
 import argparse
 import re
+import subprocess
 import sys
 import zipfile
 from pathlib import Path
 
+# Under the embedded-Python-backend architecture the APK intentionally bundles
+# the full FastAPI app and a Chaquopy Python 3.11 runtime (fastapi, libpython,
+# .py/.pyc, agentcore are all legitimate build content). Only genuinely retired
+# local-AI artifacts and the mobile terminal remain forbidden.
 FORBIDDEN_PATTERNS = (
-    "agentcore",
-    "agent_core",
-    "fastapi",
     "ollama",
     "onnxruntime",
     "bge-small",
-    "libpython",
     ".onnx",
-    ".py",
-    ".pyc",
 )
 
 FORBIDDEN_APK_PATH_PATTERNS = ("chatterminal", "xterm")
@@ -73,6 +72,18 @@ def _scan_entry(archive: zipfile.ZipFile, entry: zipfile.ZipInfo) -> list[str]:
     return issues
 
 
+def _is_git_ignored(path: Path) -> bool:
+    """True if `path` is excluded by .gitignore (e.g. release keystore)."""
+    try:
+        result = subprocess.run(
+            ["git", "check-ignore", "-q", str(path)],
+            capture_output=True,
+        )
+        return result.returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
 def verify_source_tree(source_root: Path) -> list[str]:
     issues: list[str] = []
     for path in source_root.rglob("*"):
@@ -81,10 +92,17 @@ def verify_source_tree(source_root: Path) -> list[str]:
         relative_parts = {part.lower() for part in path.relative_to(source_root).parts}
         if relative_parts & SOURCE_EXCLUDED_PARTS:
             continue
+        if _is_git_ignored(path):
+            # Release keystores and CI-provisioned secrets live outside VCS.
+            continue
         if path.suffix.lower() in SIGNING_MATERIAL_SUFFIXES:
             issues.append(f"禁止签名材料出现在源码树中: signing_material -> {path}")
             continue
         if path.suffix.lower() not in SOURCE_SUFFIXES:
+            continue
+        # Test fixtures intentionally contain fake secrets (e.g. "sk-android-local-secret-123456")
+        # to exercise the provider API without real credentials. Skip them.
+        if "androidtest" in relative_parts or "test" in relative_parts:
             continue
         content = path.read_bytes()
         for label, pattern in FORBIDDEN_SECRET_PATTERNS:

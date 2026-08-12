@@ -1167,6 +1167,13 @@ export default {
     saveFirst: '请先保存',
     chatBusy: '对话正在处理中',
     sentToChat: '已发送到对话窗口',
+    localRunTitle: '手机本地运行',
+    runInputPh: '输入本次工作流要处理的内容（可选）',
+    runLocal: '本地运行',
+    runSuccess: '工作流已在手机本地执行完成',
+    runFailed: (reason: string) => `工作流执行失败：${reason}`,
+    runStatus: (status: string) => `状态：${status}`,
+    runId: (id: string) => `运行 ID：${id}`,
     deleted: '已删除',
     nodeType: {
       tool: '工具',

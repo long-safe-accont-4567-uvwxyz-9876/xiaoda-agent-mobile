@@ -441,7 +441,9 @@ async def create_memory(body: dict, request: Request) -> Any:
     importance = _safe_float(body.get("importance", 0.5))
     emotion_label = body.get("emotion_label", "")
     timestamp = _safe_float(body.get("timestamp", time.time()), default=time.time())
-    mid = await core.db.insert_episodic_memory(
+    if core.db.memory is None:
+        raise HTTPException(503, "记忆服务不可用")
+    mid = await core.db.memory.insert_episodic_memory(
         summary=summary, importance=importance,
         emotion_label=emotion_label, timestamp=timestamp)
     # 写入向量索引（失败时记录警告，不静默吞掉）
@@ -478,8 +480,9 @@ async def update_memory(memory_id: int, body: dict, request: Request) -> Any:
     # 同步更新向量索引
     if "summary" in body and body["summary"]:
         try:
-            if core.memory:
-                await core.memory.vec.upsert(memory_id, body["summary"])
+            vec = getattr(core.memory, "vec", None) if core.memory else None
+            if vec is not None:
+                await vec.upsert(memory_id, body["summary"])
         except (OSError, KeyError, ValueError, RuntimeError, TypeError) as exc:
             logger.debug("insight.memory_vec_upsert_failed: {}", exc, exc_info=True)
     await core.db.commit()

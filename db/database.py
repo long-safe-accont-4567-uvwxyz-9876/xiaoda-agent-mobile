@@ -1,6 +1,7 @@
 import asyncio
 import contextlib
 import json
+import os
 import sqlite3
 import sys
 import time
@@ -87,6 +88,7 @@ class DatabaseManager:
         self._read_pool: list[aiosqlite.Connection] = []
         self._read_idx = 0
         self._READ_POOL_SIZE = 8
+        self._fts5_available = True
         # 写事务串行化锁：aiosqlite 单连接共享事务状态，多个后台任务并发执行
         # auto_commit=False 多语句序列时，A 的 commit() 会提交 B 未完成的半事务，
         # B 的 rollback() 会回滚 A 已写的数据 → 脏事务/数据丢失/SQL logic error
@@ -100,6 +102,19 @@ class DatabaseManager:
         self.analytics: AnalyticsDB | None = None
         self.temporal: TemporalMemoryDB | None = None
         self.kg_v2: KnowledgeDBV2 | None = None
+
+    async def _detect_fts5_support(self) -> bool:
+        """Return whether this SQLite build provides FTS5."""
+        if os.getenv("XIAODA_FORCE_NO_FTS5") == "1":
+            return False
+        try:
+            await self._conn.execute(
+                "CREATE VIRTUAL TABLE temp._xiaoda_fts5_probe USING fts5(content)"
+            )
+            await self._conn.execute("DROP TABLE temp._xiaoda_fts5_probe")
+            return True
+        except Exception:
+            return False
 
     async def init(self) -> None:
         # 幂等性：如果已有活跃连接，先关闭旧连接再创建新连接
@@ -173,7 +188,10 @@ class DatabaseManager:
                 logger.info(f"database.journal_mode={mode}")
         except (OSError, RuntimeError) as e:
             logger.warning(f"验证 journal_mode 失败: {e}")
+        self._fts5_available = await self._detect_fts5_support()
+        logger.info("database.fts5_support available={}", self._fts5_available)
         self.memory = MemoryDB(self._conn)
+        self.memory._fts5_available = self._fts5_available
         await self._create_tables()
         # Phase 6: 创建复合索引 (P2 性能优化)
         # 必须在 _create_tables 之后, 因为复合索引依赖迁移后的列 (如 confidence/session_id)
@@ -577,7 +595,10 @@ class DatabaseManager:
     async def _migrate_v3(self) -> None:
         """v3: 创建 FTS5 虚拟表 + 回填已有记忆到 FTS 索引 + 创建审计表。"""
         # 创建 FTS5 虚拟表
-        await self._conn.execute("""CREATE VIRTUAL TABLE IF NOT EXISTS episodic_memory_fts USING fts5( id UNINDEXED, summary_index )""")
+        if self._fts5_available:
+            await self._conn.execute("""CREATE VIRTUAL TABLE IF NOT EXISTS episodic_memory_fts USING fts5( id UNINDEXED, summary_index )""")
+        else:
+            await self._conn.execute("""CREATE TABLE IF NOT EXISTS episodic_memory_fts (id INTEGER PRIMARY KEY, summary_index TEXT NOT NULL DEFAULT '')""")
         # 回填已有记忆数据到 FTS 索引
         rows = await self._conn.execute_fetchall("SELECT id, summary FROM episodic_memories")
         for row in rows:
@@ -835,7 +856,10 @@ class DatabaseManager:
         await self._conn.execute("""CREATE INDEX IF NOT EXISTS idx_memory_entities_type ON memory_entities(entity_type)""")
 
         # 4. 新建 memory_entities_fts 虚拟表 + 触发器
-        await self._conn.execute("""CREATE VIRTUAL TABLE IF NOT EXISTS memory_entities_fts USING fts5( id UNINDEXED, name_index )""")
+        if self._fts5_available:
+            await self._conn.execute("""CREATE VIRTUAL TABLE IF NOT EXISTS memory_entities_fts USING fts5( id UNINDEXED, name_index )""")
+        else:
+            await self._conn.execute("""CREATE TABLE IF NOT EXISTS memory_entities_fts (id INTEGER PRIMARY KEY, name_index TEXT NOT NULL DEFAULT '')""")
         await self._conn.execute("""CREATE TRIGGER IF NOT EXISTS memory_entities_fts_ai AFTER INSERT ON memory_entities BEGIN INSERT INTO memory_entities_fts(id, name_index) VALUES (new.id, new.name); END""")
         await self._conn.execute("""CREATE TRIGGER IF NOT EXISTS memory_entities_fts_ad AFTER DELETE ON memory_entities BEGIN INSERT INTO memory_entities_fts(memory_entities_fts, id, name_index) VALUES ('delete', old.id, old.name); END""")
         await self._conn.execute("""CREATE TRIGGER IF NOT EXISTS memory_entities_fts_au AFTER UPDATE ON memory_entities BEGIN INSERT INTO memory_entities_fts(memory_entities_fts, id, name_index) VALUES ('delete', old.id, old.name); INSERT INTO memory_entities_fts(id, name_index) VALUES (new.id, new.name); END""")
@@ -886,17 +910,12 @@ class DatabaseManager:
         - FTS5 索引回填（含 FTS5 可用性检测，降级为空表）
         """
         # 0. 检测 FTS5 可用性（Windows 用户可能缺少 FTS5 扩展）
-        _fts5_available = True
-        try:
-            await self._conn.execute(
-                "CREATE VIRTUAL TABLE IF NOT EXISTS _fts5_check USING fts5(x UNINDEXED, y)"
-            )
-            await self._conn.execute("DROP TABLE IF EXISTS _fts5_check")
-        except Exception:
-            _fts5_available = False
-            logger.warning("database.fts5_not_available - FTS5虚拟表将跳过创建")
+        _fts5_available = self._fts5_available
+        if not _fts5_available:
+            logger.warning("database.fts5_not_available fallback=portable_like_index")
+            await self._conn.execute("""CREATE TABLE IF NOT EXISTS kg_entities_v2_fts (id TEXT PRIMARY KEY, name_summary TEXT NOT NULL DEFAULT '')""")
+            await self._conn.execute("""CREATE TABLE IF NOT EXISTS kg_relations_v2_fts (id TEXT PRIMARY KEY, fact TEXT NOT NULL DEFAULT '')""")
 
-        # 1. episodic_memories 新增 3 列（幂等：先检查列是否存在，镜像 v13 模式）
         cols = [r["name"] for r in await self.fetch_all("PRAGMA table_info(episodic_memories)")]
         if "salience" not in cols:
             await self._conn.execute(
@@ -1536,7 +1555,11 @@ class DatabaseManager:
                 "USING fts5(content, tokenize='unicode61')"
             )
         except Exception as e:
-            logger.warning(f"创建 memory_child_chunks_fts 失败: {e}")
+            logger.warning("database.child_fts_unavailable fallback=portable_table error={}", str(e))
+            await self._conn.execute(
+                "CREATE TABLE IF NOT EXISTS memory_child_chunks_fts "
+                "(rowid INTEGER PRIMARY KEY, content TEXT NOT NULL DEFAULT '')"
+            )
 
     async def _ddl_schedule_api_tables(self) -> None:
         """建表：调度/API/会话相关表。"""
@@ -1564,7 +1587,10 @@ class DatabaseManager:
     async def _ddl_knowledge_tables(self) -> None:
         """建表：知识图谱/FTS5 相关表。"""
         await self._conn.execute("""CREATE TABLE IF NOT EXISTS knowledge_entities ( id TEXT PRIMARY KEY, name TEXT UNIQUE, kind TEXT DEFAULT '', observations TEXT DEFAULT '[]', updated_at REAL NOT NULL )""")
-        await self._conn.execute("""CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_entities_fts USING fts5( id UNINDEXED, name_index )""")
+        if self._fts5_available:
+            await self._conn.execute("""CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_entities_fts USING fts5( id UNINDEXED, name_index )""")
+        else:
+            await self._conn.execute("""CREATE TABLE IF NOT EXISTS knowledge_entities_fts (rowid INTEGER PRIMARY KEY, id TEXT UNIQUE, name_index TEXT NOT NULL DEFAULT '')""")
         await self._conn.execute("""CREATE TABLE IF NOT EXISTS knowledge_relations ( id TEXT PRIMARY KEY, from_entity TEXT, relation_type TEXT, to_entity TEXT, created_at REAL DEFAULT 0, updated_at REAL NOT NULL )""")
         await self._conn.execute("""CREATE TABLE IF NOT EXISTS consolidation_candidates ( id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp REAL NOT NULL, source TEXT NOT NULL DEFAULT 'rule', kind TEXT NOT NULL DEFAULT 'fact', summary TEXT NOT NULL, confidence REAL DEFAULT 0.5, importance REAL DEFAULT 0.5, status TEXT NOT NULL DEFAULT 'pending', target_memory_id INTEGER DEFAULT -1, metadata_json TEXT DEFAULT '{}', created_at REAL NOT NULL )""")
 
@@ -1650,6 +1676,10 @@ class DatabaseManager:
 
     async def _setup_fts5_triggers(self) -> None:
         """Phase 5: FTS5 触发器管理。vfat/exfat 上禁用（delete 命令不工作）。"""
+        if not self._fts5_available:
+            logger.info("database.fts5_triggers_disabled reason=fts5_unavailable")
+            return
+
         if getattr(self, "_is_fat_fs", False):
             # 删除可能存在的触发器（防止之前版本创建的触发器残留）
             for trig in ["knowledge_entities_fts_ai", "knowledge_entities_fts_ad", "knowledge_entities_fts_au",

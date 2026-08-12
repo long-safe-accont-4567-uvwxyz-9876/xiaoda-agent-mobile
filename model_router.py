@@ -6,6 +6,7 @@ import hashlib
 import os
 import time
 from collections.abc import AsyncIterator
+from types import SimpleNamespace
 from typing import Any, ClassVar
 
 import httpx
@@ -1607,7 +1608,8 @@ class ModelRouter:
                           user_openid: str = "", session_id: str = "",
                           extra_headers: dict | None = None,
                           tools: list[dict] | None = None,
-                          tool_choice: str | None = None) -> AsyncIterator[str]:
+                          tool_choice: str | None = None,
+                          raw_chunks: bool = False) -> AsyncIterator[Any]:
         """流式调用 LLM，yield 每个 chunk 的 delta content。
 
         复用 _route_with_retry 的重试/错误分类/凭证轮换逻辑，
@@ -1703,7 +1705,9 @@ class ModelRouter:
                         if _chunk_fr:
                             _stream_finish_reason = _chunk_fr
                         delta = getattr(_choice.delta, "content", None)
-                        if delta:
+                        if raw_chunks:
+                            yield chunk
+                        elif delta:
                             yield delta
                 # P0 修复：流结束后检测是否收到 finish_reason
                 # 如果未收到，说明 provider 可能中途关闭连接（死流），content 可能被截断
@@ -1812,6 +1816,9 @@ class ModelRouter:
             # fallback 返回流对象（stream=True 路径），透传其 chunks
             if hasattr(fb_result, "__aiter__"):
                 async for _fb_chunk in fb_result:
+                    if raw_chunks:
+                        yield _fb_chunk
+                        continue
                     _fb_choices = getattr(_fb_chunk, "choices", None)
                     _fb_delta = None
                     if _fb_choices:
@@ -1834,6 +1841,124 @@ class ModelRouter:
             error_code=ErrorCodeEnum.E_LLM001,
             cause=last_error,
         ) from last_error
+
+    async def chat_stream_response(
+        self,
+        messages: list,
+        task_type: str = "chat",
+        temperature: float = 0.7,
+        max_tokens: int = 2000,
+        user_openid: str = "",
+        session_id: str = "",
+        extra_headers: dict | None = None,
+        tools: list[dict] | None = None,
+        tool_choice: str | None = None,
+        delta_callback: Any = None,
+    ) -> Any:
+        """Collect a streamed completion while preserving tool-call deltas.
+
+        ``chat_stream`` remains the single retry, credential-rotation and
+        fallback implementation. This adapter reconstructs the response shape
+        consumed by the verification loop, and forwards textual deltas to the
+        WebSocket status callback without disabling tools.
+        """
+        content_parts: list[str] = []
+        reasoning_parts: list[str] = []
+        tool_parts: dict[int, dict[str, str]] = {}
+        finish_reason: str | None = None
+        usage: Any = None
+        response_model = ""
+
+        async for item in self.chat_stream(
+            messages,
+            task_type=task_type,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            user_openid=user_openid,
+            session_id=session_id,
+            extra_headers=extra_headers,
+            tools=tools,
+            tool_choice=tool_choice,
+            raw_chunks=True,
+        ):
+            if isinstance(item, str):
+                content_parts.append(item)
+                if delta_callback is not None:
+                    callback_result = delta_callback(item)
+                    if hasattr(callback_result, "__await__"):
+                        await callback_result
+                continue
+
+            usage = getattr(item, "usage", None) or usage
+            response_model = getattr(item, "model", "") or response_model
+            choices = getattr(item, "choices", None) or []
+            if not choices:
+                continue
+            choice = choices[0]
+            chunk_finish = getattr(choice, "finish_reason", None)
+            if chunk_finish:
+                finish_reason = chunk_finish
+            delta = getattr(choice, "delta", None)
+            if delta is None:
+                continue
+
+            content = getattr(delta, "content", None)
+            if content:
+                content_parts.append(content)
+                if delta_callback is not None:
+                    callback_result = delta_callback(content)
+                    if hasattr(callback_result, "__await__"):
+                        await callback_result
+
+            reasoning = getattr(delta, "reasoning_content", None)
+            if reasoning:
+                reasoning_parts.append(reasoning)
+
+            for tool_call in getattr(delta, "tool_calls", None) or []:
+                index = int(getattr(tool_call, "index", 0) or 0)
+                part = tool_parts.setdefault(
+                    index, {"id": "", "type": "function", "name": "", "arguments": ""}
+                )
+                call_id = getattr(tool_call, "id", None)
+                call_type = getattr(tool_call, "type", None)
+                if call_id:
+                    part["id"] = str(call_id)
+                if call_type:
+                    part["type"] = str(call_type)
+                function = getattr(tool_call, "function", None)
+                if function is not None:
+                    name = getattr(function, "name", None)
+                    arguments = getattr(function, "arguments", None)
+                    if name:
+                        part["name"] += str(name)
+                    if arguments:
+                        part["arguments"] += str(arguments)
+
+        tool_calls = [
+            SimpleNamespace(
+                id=part["id"] or f"stream_tool_{index}",
+                type=part["type"] or "function",
+                function=SimpleNamespace(
+                    name=part["name"],
+                    arguments=part["arguments"] or "{}",
+                ),
+            )
+            for index, part in sorted(tool_parts.items())
+        ]
+        reasoning_content = "".join(reasoning_parts)
+        _reasoning_content_var.set(reasoning_content)
+        if tool_calls and not finish_reason:
+            finish_reason = "tool_calls"
+        message = SimpleNamespace(
+            content="".join(content_parts),
+            tool_calls=tool_calls,
+            reasoning_content=reasoning_content or None,
+        )
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=message, finish_reason=finish_reason)],
+            usage=usage,
+            model=response_model,
+        )
 
     @staticmethod
     def _classify_error(exc: Exception) -> str:

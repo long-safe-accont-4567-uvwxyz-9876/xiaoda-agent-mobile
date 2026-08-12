@@ -84,7 +84,9 @@ async def test_startup_with_embedding_key_enables_siliconflow_store(
 @pytest.mark.asyncio
 async def test_text_memory_creation_works_without_vector_store():
     db = SimpleNamespace(
-        insert_episodic_memory=AsyncMock(return_value=42),
+        memory=SimpleNamespace(
+            insert_episodic_memory=AsyncMock(return_value=42),
+        ),
         commit=AsyncMock(),
     )
     core = SimpleNamespace(
@@ -99,7 +101,7 @@ async def test_text_memory_creation_works_without_vector_store():
     response = await create_memory({"summary": "纯文本记忆"}, request)
 
     assert response.data == {"id": 42}
-    db.insert_episodic_memory.assert_awaited_once()
+    db.memory.insert_episodic_memory.assert_awaited_once()
     db.commit.assert_awaited_once()
 
 

@@ -145,7 +145,7 @@ class MarketInstaller:
 
             # 触发插件发现
             if self._plugin_manager:
-                self._plugin_manager.discover()
+                self._plugin_manager.discover([self._plugins_dir])
 
             logger.info("market.plugin_installed", id=item.id, version=item.version)
 
@@ -525,13 +525,19 @@ class MarketInstaller:
             result["checks"].append({"name": "plugin.yaml", "status": "fail", "detail": str(e)})
             return result
 
-        # 检查 2: 入口模块可导入
-        entry = data.get("entry", "")
-        if entry:
-            module_name = entry.replace("/", ".").replace("\\", ".").rstrip(".py")
+        # Check the entrypoint directly from the installed private directory.
+        # The manifest field is entrypoint="module.path:ClassName".
+        entrypoint = data.get("entrypoint", "")
+        if entrypoint:
             try:
                 import importlib
-                importlib.import_module(f"plugins.{plugin_id}.{module_name}")
+                import sys
+
+                module_name, class_name = entrypoint.rsplit(":", 1)
+                if str(plugin_dir) not in sys.path:
+                    sys.path.insert(0, str(plugin_dir))
+                module = importlib.import_module(module_name)
+                getattr(module, class_name)
                 result["checks"].append({"name": "entry_module", "status": "ok"})
             except Exception as e:
                 result["checks"].append({"name": "entry_module", "status": "fail", "detail": str(e)})

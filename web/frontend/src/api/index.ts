@@ -99,6 +99,21 @@ export interface WorkflowSummary {
   version: string
 }
 
+export interface WorkflowRun {
+  id: string
+  workflow_id: string
+  name: string
+  status: 'pending' | 'running' | 'success' | 'failed' | 'cancelled' | 'interrupted'
+  created_at: number
+  started_at?: number | null
+  finished_at?: number | null
+  input: string
+  variables: Record<string, any>
+  nodes: Array<Record<string, any>>
+  outputs: Record<string, any>
+  error: string
+}
+
 export const api = {
   login: (password: string) =>
     post<{ token: string; expires_at: number }>('/auth/login', { password }),
@@ -238,6 +253,11 @@ export const api = {
   updateWorkflow: (id: string, data: Workflow) => put<Workflow>('/workflows/' + id, data),
   deleteWorkflow: (id: string) => del<void>('/workflows/' + id),
   previewWorkflow: (id: string) => get<{prompt: string}>('/workflows/' + id + '/preview'),
+  runWorkflow: (id: string, data: { input?: string; variables?: Record<string, any>; wait?: boolean }) =>
+    post<WorkflowRun>('/workflows/' + id + '/run', data),
+  getWorkflowRun: (runId: string) => get<WorkflowRun>('/workflow-runs/' + runId),
+  listWorkflowRuns: (workflowId = '') => get<WorkflowRun[]>('/workflow-runs' + (workflowId ? '?workflow_id=' + encodeURIComponent(workflowId) : '')),
+  cancelWorkflowRun: (runId: string) => post<WorkflowRun>('/workflow-runs/' + runId + '/cancel'),
 
   // 品牌署名与免责协议
   getBrandSignature: () => get<{ signature: string; author: string; version: string }>('/brand/signature'),

@@ -5,6 +5,7 @@ import os
 import sys
 import math
 import subprocess
+import time
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 from tool_engine.tool_registry import register_tool, ToolPermission, ToolResult
@@ -216,6 +217,93 @@ if "_result" in local_vars:
 '''
 
 
+_MOBILE_ALLOWED_MODULES = frozenset({
+    "array", "base64", "bisect", "collections", "csv", "datetime",
+    "decimal", "fractions", "functools", "hashlib", "heapq", "itertools",
+    "json", "math", "operator", "random", "re", "statistics", "string",
+})
+_MOBILE_MAX_SOURCE_CHARS = 100_000
+_MOBILE_MAX_OUTPUT_CHARS = 200_000
+_MOBILE_MAX_TRACE_EVENTS = 2_000_000
+
+
+def _mobile_safe_import(name: str, globals: dict | None = None, locals: dict | None = None,
+                        fromlist: tuple | list = (), level: int = 0) -> Any:
+    """Only reviewed computation modules may enter the embedded executor."""
+    if level:
+        raise ImportError("Mobile Python executor does not allow relative imports")
+    root = (name or "").split(".", 1)[0]
+    if root not in _MOBILE_ALLOWED_MODULES:
+        raise ImportError(f"Mobile Python executor does not allow module: {name}")
+    return __import__(name, globals, locals, fromlist, level)
+
+
+def _execute_in_process_mobile(code: str) -> ToolResult:
+    """Execute inside Chaquopy with restricted builtins and no shell process."""
+    if len(code) > _MOBILE_MAX_SOURCE_CHARS:
+        return ToolResult.fail(f"Source is too long; maximum {_MOBILE_MAX_SOURCE_CHARS} characters")
+
+    output: list[str] = []
+    output_size = 0
+
+    def safe_print(*values: Any, sep: str = " ", end: str = "\n", file: Any = None,
+                   flush: bool = False) -> None:
+        nonlocal output_size
+        if file is not None:
+            raise ValueError("Mobile Python executor cannot redirect output to a file")
+        chunk = sep.join(str(value) for value in values) + end
+        remaining = _MOBILE_MAX_OUTPUT_CHARS - output_size
+        if remaining <= 0:
+            raise RuntimeError("Output exceeded the mobile executor limit")
+        output.append(chunk[:remaining])
+        output_size += min(len(chunk), remaining)
+        if len(chunk) > remaining:
+            raise RuntimeError("Output exceeded the mobile executor limit")
+
+    safe_builtins = dict(_SAFE_BUILTINS)
+    safe_builtins["print"] = safe_print
+    safe_builtins["__import__"] = _mobile_safe_import
+    execution_namespace: dict[str, Any] = {
+        "__builtins__": safe_builtins,
+        "__name__": "__xiaoda_mobile_python__",
+        "math": math,
+    }
+    deadline = time.monotonic() + _EXEC_TIMEOUT
+    trace_events = 0
+
+    def trace(frame: Any, event: str, arg: Any) -> Any:
+        nonlocal trace_events
+        if event in ("line", "call", "return", "exception"):
+            trace_events += 1
+            if trace_events > _MOBILE_MAX_TRACE_EVENTS:
+                raise TimeoutError("Execution step budget exceeded")
+            if time.monotonic() > deadline:
+                raise TimeoutError(f"Execution exceeded {_EXEC_TIMEOUT} seconds")
+        return trace
+
+    previous_trace = sys.gettrace()
+    try:
+        compiled = compile(code, "<xiaoda-mobile-python>", "exec", dont_inherit=True)
+        sys.settrace(trace)
+        exec(compiled, execution_namespace, execution_namespace)
+    except TimeoutError as exc:
+        return ToolResult.fail(str(exc))
+    except BaseException as exc:
+        return ToolResult.fail(f"{type(exc).__name__}: {exc}")
+    finally:
+        sys.settrace(previous_trace)
+
+    parts: list[str] = []
+    stdout = "".join(output)
+    if stdout:
+        parts.append(f"stdout:\n{stdout}")
+    if "_result" in execution_namespace:
+        result_text = repr(execution_namespace["_result"])
+        if len(result_text) > _MOBILE_MAX_OUTPUT_CHARS:
+            result_text = result_text[:_MOBILE_MAX_OUTPUT_CHARS] + "?"
+        parts.append(f"result: {result_text}")
+    return ToolResult.ok("\n".join(parts) if parts else "Execution completed with no output")
+
 @register_tool(
     name="get_current_time",
     description="获取当前的日期和时间（北京时间 Asia/Shanghai）。无需输入参数。",
@@ -272,6 +360,9 @@ def python_executor(code: str) -> ToolResult:
         return ToolResult.fail(f"代码安全审查未通过: {audit_result}")
 
     # 创建管道用于单独回传 _result（fd 号运行时由 os.pipe() 分配）
+    if os.getenv("XIAODA_MOBILE") == "1":
+        return _execute_in_process_mobile(code)
+
     result_r, result_w = os.pipe()
 
     try:

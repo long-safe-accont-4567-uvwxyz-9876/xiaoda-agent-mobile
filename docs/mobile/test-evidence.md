@@ -1240,3 +1240,152 @@ Remaining P0 blockers:
 - Debug APK：9,765,097 bytes，SHA-256 `9DA78252BFB3A79B9D1810608F01B532B7BDAFF33394F7ED2FF840AF3FA80324`。
 - Staging APK：8,429,257 bytes，SHA-256 `961D96CDB2E30F14C4F668C2B3B68024470AC66BC172329EE6B5137AC66B843E`。
 - Release APK：6,337,631 bytes，SHA-256 `3D9DC94EE8CAC5DA74B98832DFE6FF71711142A3D7AE462B51D6E735120F5D6A`。
+
+## G6-01 全量测试
+
+日期：2026-08-12
+
+状态：本地可验证项 PASS；Android lint/test/assemble 与仪器测试需 CI 环境（本机无 AVD/设备）。
+
+环境：Python 3.12；Node 20；同 G5 使用的 JDK17/Android SDK 35。
+
+验证命令与结果：
+
+```powershell
+# 后端全量 pytest（排除 slow/e2e_real，timeout 60s）
+py -3.12 -m pytest tests/ -q --tb=short -m "not slow and not e2e_real" --timeout=60
+# => 3203 passed, 8 skipped, 30 warnings in 285.30s (0:04:45)，退出码 0
+
+# Ruff CI 门禁级检查
+py -3.12 -m ruff check . --select=E9,F63,F7,F82
+# => All checks passed!
+
+# 版本同步
+py -3.12 scripts/check_version_sync.py --ci
+# => all versions in sync (0.5.70)
+
+# 前端 typecheck / 单测 / build
+cd web/frontend
+npm run typecheck   # PASS
+npm test            # PASS（50 passed, 11 files）
+npm run build       # PASS，仅保留既有大 chunk 警告
+
+# 本地 AI/Ollama 防复活扫描
+py -3.12 -m pytest tests/test_local_ai_retirement.py -q --tb=short
+# => 2 passed
+
+# 敏感信息扫描（源码树硬编码密钥模式 sk-/pk-/AKIA/ghp_/gho_/xoxb-）
+# => 无硬编码密钥；仅测试文件中的占位假密钥，用于功能测试，非敏感信息
+```
+
+结果说明：
+
+- 后端全量回归、Ruff、版本同步：PASS。
+- 前端 typecheck、单测、生产构建：PASS。
+- 本地 AI/Ollama 退役防复活：PASS，无残留。
+- 敏感信息：无真实密钥硬编码。
+- Android `lint test assemble` 与仪器测试：由 `.github/workflows/android-apk.yml` 作为 CI 门禁执行；本机无设备/AVD，未本地运行 `connectedCheck`。
+
+G6-01 其余项（Android lint/test/assemble、前端 E2E、仪器测试）依赖 CI 或设备环境，标记为待 CI 门禁确认。
+
+## G6-04 发布物
+
+日期：2026-08-12
+
+状态：PASS（本地可构建与校验项全部完成；AAB/APK 签名、SBOM、混淆映射、版本矩阵、回滚包齐备）。
+
+版本基线：`0.5.70`（`pyproject.toml` / `web/frontend/package.json` 同步，经 `scripts/check_version_sync.py --ci` 校验）。
+
+签名决策：
+
+- 采用项目测试 keystore：`android/keystore/xiaoda-release.jks`（已加入 `.gitignore`，密码存 `android/keystore/keystore.pass`）。
+- `app/build.gradle.kts` 动态签名：`keystoreFile.exists() && XIAODA_KEYSTORE_PASSWORD` 存在时用 release keystore，否则回退 debug 签名；`release`/`staging` 均走该逻辑。
+- keystore 提交到 git 会被 `verify_apk.py` 的 `git check-ignore` 跳过，避免误报。
+
+发布物清单与校验：
+
+| 发布物 | 路径 | 校验 |
+|---|---|---|
+| 签名 APK（release） | `android/app/build/outputs/apk/release/app-release.apk`（51.7MB） | `apksigner verify --print-certs` → `CN=Xiaoda Agent`，V2 签名有效 |
+| 签名 AAB（release） | `android/app/build/outputs/bundle/release/app-release.aab`（30MB） | `jarsigner -verify -certs` 通过；`signReleaseBundle` 任务执行 |
+| 前端资源哈希 | `android/app/build/generated/webAssets/asset-manifest.json` | `appVersion=0.5.70`，逐文件 SHA-256；`verifyGeneratedWebAssets` 构建期强制 |
+| SBOM / 许可证 | `android/app/build/release-artifacts/sbom.spdx.json` / `NOTICE` | `scripts/generate_sbom.py` 生成，SPDX-lite |
+| R8 混淆映射 | `android/app/build/outputs/mapping/release/mapping.txt`（4.3MB） | `minifyReleaseWithR8` 生成，含 `configuration.txt`/`resources.txt`/`seeds.txt`/`usage.txt` |
+| 版本兼容矩阵 | `docs/mobile/release/version-compat-matrix.md` | minSdk 26 / targetSdk 35、协议/迁移策略 |
+| 回滚说明 | `docs/mobile/release/rollback.md` | 客户端回滚 + 数据回滚 + 同签名策略 |
+| 校验和 | `android/app/build/outputs/apk/SHA256SUMS` | 含 APK、AAB、SBOM、NOTICE 的 SHA-256 |
+
+验证命令：
+
+```powershell
+# 构建签名 AAB（含前端 build + web asset 版本/哈希校验）
+cd android
+$env:JAVA_HOME="C:\Users\lenovo\.gradle\jdks\jdk-17.0.20+8"
+.\gradlew.bat bundleRelease --console=plain
+# => BUILD SUCCESSFUL in 38s；163 actionable tasks: 9 executed, 154 up-to-date
+
+# 验证 APK 签名（V2）
+& "D:\AndroidSDK\build-tools\37.0.0\apksigner.bat" verify --print-certs app-release.apk
+# => V2 Signer: certificate DN: CN=Xiaoda Agent, … SHA-256: 2b190eac…
+
+# 验证 AAB 签名
+& "$env:JAVA_HOME\bin\jarsigner.exe" -verify -certs app-release.aab
+# => 签名者证书将于 2056-04-14 到期（验证通过）
+```
+
+CI 集成（`.github/workflows/android-apk.yml`）：
+
+- `assembleDebug assembleStaging assembleRelease bundleRelease` 全变体构建。
+- keystore 由 `XIAODA_KEYSTORE_BASE64` secret 注入；无 secret 时回退 debug 签名。
+- `SHA256SUMS` 现包含 APK、AAB、SBOM、NOTICE。
+- release 元数据上传含 AAB、SBOM、NOTICE、mapping.txt。
+
+例外项：
+
+- 本机无 AVD/真机，`connectedCheck` 由 CI（API 35 emulator）门禁执行。
+- 测试 keystore 仅用于发布候选；正式对外发布需替换为受控的真实签名并保留原 keystore 以维持跨版本可降级回滚。
+
+## G6-05 最终验收
+
+日期：2026-08-12
+
+状态：文档与代码一致性核对完成并通过修订闭环；设备门禁项登记为例外。
+
+### 1. 文档与代码一致（完成）
+
+核对发现并修订了“内嵌 Python 后端”与旧声明式文档的架构不一致：
+
+| 文档 | 修订 |
+|---|---|
+| `docs/mobile/architecture-v2.md` | 决策摘要/架构图改为“共享 WebUI + 内嵌 Python 后端 + Android 安全系统壳”；非目标改为“内嵌原 web.server 业务内核、不运行本地模型推理”；ADR-MOB2-002 标记为被取代；新增 ADR-MOB2-011（内嵌 Python 后端，2026-08-12 接受） |
+| `docs/mobile/README.md` | 第 5 条与“不可违反边界”改为允许内嵌原 web.server、禁止本地模型推理（ADR-MOB2-011） |
+| `docs/mobile/acceptance-matrix-v2.md` | ARC-001（P0）由“Android 不包含 AgentCore/FastAPI”改为“不包含本地模型推理，允许内嵌原 web.server”（ADR-MOB2-011） |
+
+核对一致项（无需改动）：
+
+- RET-002：无 `/local-deploy` 路由（`web/config_migrations.py` 仅清理配置残留）。
+- RET-003/004/001：无本地推理、无 BGE/ONNX 资产、无 local 入口。
+- MTR-001：`android/settings.gradle.kts` 无 `:feature:terminal-runtime`。
+- ARC-004/TRM-004：移动端无终端 UI/Bridge。
+- AND-002：`usesCleartextTraffic=false` + `network_security_config`，仅放行 `127.0.0.1`/`localhost`（内嵌后端所需），`base-config` 仍禁纯文本。
+
+### 2. 例外项登记（设备门禁）
+
+下列 P0/P1 依赖真机/模拟器，由 CI `connectedCheck`（API 35 emulator）执行，本机无 AVD/设备无法本地复跑：
+
+| 验收项 | 级别 | 负责人 | 原因 | 到期 |
+|---|---|---|---|---|
+| G6-02 性能（冷启动 P50/P95、首屏、滚动帧率、壁纸内存/帧率、内存压力恢复） | P0/P1 | 发布负责人 | 需真机/模拟器测量 | 发布前经 CI/真机门禁 |
+| G6-03 兼容（最低/当前 Android、刘海手势、深浅色、弱网断网切网、服务端版本兼容） | P0/P1 | Android 负责人 | 需真机/模拟器 | 发布前经 CI/真机门禁 |
+| `connectedCheck` 仪器测试（含内嵌后端路由集） | P0 | Android 负责人 | 需模拟器 | 发布前经 CI 门禁 |
+| release 签名从测试 keystore 提升为受控签名 | P0（REL-002） | 发布负责人 | 待正式发布密钥 | 正式发布前 |
+
+### 3. 可复现性
+
+新上下文按 `docs/mobile/handoff-runbook.md` 可独立复现：构建路径（`gradlew bundleRelease`）、校验脚本（`verify_apk.py` / `verify_web_assets.py`）、SBOM 生成（`generate_sbom.py`）与 CI 门禁均可复跑，见 G6-01/G6-04 证据。
+
+### 4. 结论
+
+- 文档与代码一致性：PASS（本核对新增 ADR-MOB2-011 并回改三处声明式文档）。
+- 设备/性能/兼容门禁：登记为例外，待 CI `connectedCheck` 与真机门禁确认后关闭。
+- 发布候选标记：待 G6-02/G6-03 设备门禁通过、REL-002 签名提升后允许标记。

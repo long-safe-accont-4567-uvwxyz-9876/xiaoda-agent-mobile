@@ -4,31 +4,21 @@
 
 ### 1.1 主决策
 
-采用“共享 WebUI + 远端 AgentCore + Android 安全系统壳”的架构。移动端不提供终端；桌面 Web 终端保持现有能力。
+采用“共享 WebUI + 内嵌 Python 后端 + Android 安全系统壳”的架构。移动端不提供终端；桌面 Web 终端保持现有能力。
 
 ```text
 Android App
   ├─ Android System Shell
-  │   ├─ 认证令牌安全存储
+  │   ├─ 认证令牌安全存储（Keystore）
   │   ├─ 文件选择、分享、通知、深链
   │   ├─ 生命周期和网络状态
+  │   └─ 内嵌 Python 后端（Chaquopy）
+  │       └─ 127.0.0.1:8765 上运行原 web.server（FastAPI + AgentCore 等价）
   └─ Bundled Vue WebUI
       ├─ 方案 C 移动导航
       ├─ 全部现有业务页面
-      ├─ REST / WebSocket Client
+      ├─ REST / WebSocket Client → 内嵌后端
       └─ 移动端不挂载终端 UI
-
-Remote Xiaoda Service
-  ├─ FastAPI / WebSocket
-  ├─ AgentCore
-  ├─ ModelRouter
-  ├─ Custom Providers
-  ├─ Tool Engine
-  ├─ Memory / KG
-  └─ Media Services
-
-Optional Terminal Runtime
-  └─ Remote CLI Client only
 ```
 
 ### 1.2 为什么替代旧方案
@@ -39,7 +29,7 @@ Optional Terminal Runtime
 - 每个后端能力需要维护两套交互、状态和测试。
 - MCP、插件、工作流、仪表盘等管理页面迁移成本远高于移动壳适配。
 
-因此旧 ADR-MOBILE-001 中“远端 AgentCore”继续有效；“完整原生 Compose 业务 UI”被本方案取代。
+因此旧 ADR-MOBILE-001 中“远端 AgentCore”已被 ADR-MOB2-011（内嵌 Python 后端）取代；“完整原生 Compose 业务 UI”被本方案取代。
 
 ## 2. 架构目标
 
@@ -60,8 +50,8 @@ Optional Terminal Runtime
 
 ### 2.3 非目标
 
-- 不在 Android 端运行模型推理。
-- 不在 Android 端运行 AgentCore、FastAPI、向量数据库或插件宿主。
+- 不在 Android 端运行本地模型推理（Ollama/ONNX/BGE 已退役；语义向量仅调用远程 Embedding API）。
+- 内嵌 Python 后端在 `127.0.0.1` 运行原 `web.server`（FastAPI + AgentCore 等价，含 SQLite/向量检索与插件）；不另行引入独立后端服务。
 - 不保证后台永久 WebSocket。
 - 不在移动端提供终端 UI、终端 Bridge、Termux、PTY 或远程 CLI 自动启动，也不保留研究构建。
 - 不在本轮重写全部桌面 WebUI 页面。
@@ -391,11 +381,19 @@ warnings
 - 决策：移动端复用 Vue WebUI，Android 只提供系统壳。
 - 后果：功能一致性提高；必须强化 WebView 安全和移动响应式质量。
 
-### ADR-MOB2-002 远端业务内核
+### ADR-MOB2-002 远端业务内核（已被取代）
 
-- 状态：接受。
-- 决策：AgentCore、模型、工具、记忆均在远端服务。
-- 后果：移动端依赖网络；离线只提供缓存和只读状态。
+- 状态：被 ADR-MOB2-011 取代。
+- 原决策：AgentCore、模型、工具、记忆均在远端服务。
+- 原后果：移动端依赖网络；离线只提供缓存和只读状态。
+- 取代原因：产品改为“完全离线单机版”，业务内核随应用内嵌，不再依赖远端服务。
+
+### ADR-MOB2-011 内嵌 Python 后端
+
+- 状态：接受（2026-08-12）。
+- 决策：移动端采用“完全离线单机版”形态，通过 Chaquopy 在 Android 内嵌 Python 3.11 运行时，于 `127.0.0.1:8765` 启动原 `web.server`（FastAPI + AgentCore 等价），WebUI 走 loopback 访问内嵌后端；不再连接远端 AgentCore 服务。
+- 后果：APK 体积增大（约 50MB+，含 Python 运行时与依赖）；本地 SQLite/向量检索/插件随应用存储于私有目录；`network_security_config` 需放行 `127.0.0.1`/`localhost` 明文；Chaquopy 依赖须用 Android 交叉编译轮子（arm64-v8a/x86_64）。
+- 边界：本地模型推理（Ollama/ONNX/BGE）仍退役，语义向量仅调用远程 Embedding API；移动端仍不提供终端能力。
 
 ### ADR-MOB2-003 退役本地 AI
 

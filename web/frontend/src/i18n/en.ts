@@ -1166,6 +1166,13 @@ export default {
     saveFirst: 'Please save first',
     chatBusy: 'A conversation is in progress',
     sentToChat: 'Sent to chat window',
+    localRunTitle: 'Run on this device',
+    runInputPh: 'Input for this workflow run (optional)',
+    runLocal: 'Run locally',
+    runSuccess: 'Workflow completed locally on this device',
+    runFailed: (reason: string) => `Workflow failed: ${reason}`,
+    runStatus: (status: string) => `Status: ${status}`,
+    runId: (id: string) => `Run ID: ${id}`,
     deleted: 'Deleted',
     nodeType: {
       tool: 'Tool',

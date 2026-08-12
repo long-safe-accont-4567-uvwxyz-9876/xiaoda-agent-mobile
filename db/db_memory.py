@@ -14,6 +14,7 @@ class MemoryDB:
         # 避免 7 路检索通道排队同一个主连接导致总耗时=各通道之和
         self._read_pool: list[aiosqlite.Connection] = []
         self._read_idx = 0
+        self._fts5_available = True
 
     def _read_conn(self) -> aiosqlite.Connection:
         """取只读连接（round-robin），池空时回退主连接（保留原行为）。"""
@@ -22,6 +23,48 @@ class MemoryDB:
         conn = self._read_pool[self._read_idx % len(self._read_pool)]
         self._read_idx += 1
         return conn
+
+    @staticmethod
+    def _like_pattern(query: str) -> str:
+        escaped = query.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        return f"%{escaped}%"
+
+    async def _search_memories_like(
+        self,
+        query: str,
+        limit: int,
+        scope: Any | None = None,
+        is_raw: int | None = None,
+        start_ts: float | None = None,
+        end_ts: float | None = None,
+    ) -> list[dict]:
+        conditions = ["summary LIKE ? ESCAPE '\\'"]
+        params: list[Any] = [self._like_pattern(query)]
+        if scope is not None:
+            conditions.extend(["user_id = ?", "agent_id = ?", "session_id != 'archived'"])
+            params.extend([scope.user_id, scope.agent_id])
+        if is_raw is not None:
+            conditions.append("is_raw = ?")
+            params.append(is_raw)
+        if start_ts is not None:
+            conditions.append("timestamp >= ?")
+            params.append(start_ts)
+        if end_ts is not None:
+            conditions.append("timestamp < ?")
+            params.append(end_ts)
+        params.append(limit)
+        cursor = await self._read_conn().execute(
+            f"SELECT * FROM episodic_memories WHERE {' AND '.join(conditions)} "
+            "ORDER BY importance DESC, timestamp DESC LIMIT ?",
+            params,
+        )
+        rows = await cursor.fetchall()
+        results = []
+        for row in rows:
+            value = dict(row)
+            value["score"] = 0.25
+            results.append(value)
+        return results
 
     async def commit(self) -> None:
         await self._conn.commit()
@@ -50,7 +93,8 @@ class MemoryDB:
                                       embedding_id: int = -1, auto_commit: bool = True,
                                       source: str = "user",
                                       scope: Any | None = None,
-                                      is_raw: int = 0) -> Any:
+                                      is_raw: int = 0,
+                                      timestamp: float | None = None) -> Any:
         """插入情景记忆。
 
         Args:
@@ -70,7 +114,8 @@ class MemoryDB:
                (timestamp, summary, importance, emotion_label, session_id,
                 embedding_id, source, user_id, agent_id, is_raw)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (time.time(), summary, importance, emotion_label, session_id,
+            (time.time() if timestamp is None else float(timestamp),
+             summary, importance, emotion_label, session_id,
              embedding_id, source, user_id, agent_id, is_raw),
         )
         mem_id = cursor.lastrowid
@@ -308,6 +353,8 @@ class MemoryDB:
         fts_query = _build_fts_query(query)
         if not fts_query:
             return []
+        if not self._fts5_available:
+            return await self._search_memories_like(query, limit)
         try:
             cursor = await self._read_conn().execute(
                 """SELECT em.*, bm25(episodic_memory_fts) AS score
@@ -329,7 +376,7 @@ class MemoryDB:
         except Exception as e:
             from loguru import logger
             logger.warning("db_memory.fts_search_failed", error=str(e))
-            return []
+            return await self._search_memories_like(query, limit)
 
     async def search_memories_fts_scoped(self, query: str, scope: Any,
                                           limit: int = 20,
@@ -345,6 +392,8 @@ class MemoryDB:
         fts_query = _build_fts_query(query)
         if not fts_query:
             return []
+        if not self._fts5_available:
+            return await self._search_memories_like(query, limit, scope=scope, is_raw=is_raw)
         try:
             where_extra = ""
             params: list = [fts_query, scope.user_id, scope.agent_id]
@@ -372,7 +421,7 @@ class MemoryDB:
             return results
         except Exception as e:
             logger.warning("db_memory.fts_scoped_search_failed", error=str(e))
-            return []
+            return await self._search_memories_like(query, limit, scope=scope, is_raw=is_raw)
 
     async def search_memories_by_time_scoped(self, start_ts: float, end_ts: float,
                                               scope: Any, limit: int = 20,
@@ -546,6 +595,12 @@ class MemoryDB:
         fts_query = _build_fts_query(query)
         if not fts_query:
             return []
+        if not self._fts5_available:
+            cursor = await self._conn.execute(
+                "SELECT * FROM memory_entities WHERE name LIKE ? ESCAPE '\\' LIMIT ?",
+                (self._like_pattern(query), limit),
+            )
+            return [dict(row) for row in await cursor.fetchall()]
         try:
             cursor = await self._conn.execute(
                 """SELECT DISTINCT me.* FROM memory_entities_fts
@@ -558,7 +613,11 @@ class MemoryDB:
             return [dict(r) for r in rows]
         except Exception as e:
             logger.debug("db_memory.search_entities_fts_failed", error=str(e))
-            return []
+            cursor = await self._conn.execute(
+                "SELECT * FROM memory_entities WHERE name LIKE ? ESCAPE '\\' LIMIT ?",
+                (self._like_pattern(query), limit),
+            )
+            return [dict(row) for row in await cursor.fetchall()]
 
     async def increment_entity_memory_count(self, entity_id: int,
                                              auto_commit: bool = True) -> None:
@@ -905,6 +964,8 @@ class MemoryDB:
         fts_query = _build_fts_query(query)
         if not fts_query:
             return []
+        if not self._fts5_available:
+            return await self._search_memories_like(query, limit, start_ts=start_ts, end_ts=end_ts)
         try:
             cursor = await self._conn.execute(
                 """SELECT em.*, bm25(episodic_memory_fts) AS score
@@ -926,7 +987,7 @@ class MemoryDB:
         except Exception as e:
             from loguru import logger
             logger.warning("db_memory.fts_time_search_failed", error=str(e))
-            return []
+            return await self._search_memories_like(query, limit, start_ts=start_ts, end_ts=end_ts)
 
     async def update_memory_enrichment(self, memory_id: int, summary: str = "",
                                         entities: str = "", event_type: str = "",
@@ -1342,6 +1403,15 @@ class MemoryDB:
         fts_query = _build_fts_query(query)
         if not fts_query:
             return []
+        if not self._fts5_available:
+            cursor = await self._read_conn().execute(
+                """SELECT id, parent_id, content, chunk_type, importance, 0.25 AS score
+                   FROM memory_child_chunks
+                   WHERE content LIKE ? ESCAPE '\\'
+                   ORDER BY importance DESC, created_at DESC LIMIT ?""",
+                (self._like_pattern(query), limit),
+            )
+            return [dict(row) for row in await cursor.fetchall()]
         try:
             cursor = await self._read_conn().execute(
                 """SELECT mc.id, mc.parent_id, mc.content, mc.chunk_type, mc.importance,
@@ -1358,7 +1428,14 @@ class MemoryDB:
         except Exception as e:
             from loguru import logger
             logger.warning("db_memory.child_fts_search_failed", error=str(e))
-            return []
+            cursor = await self._read_conn().execute(
+                """SELECT id, parent_id, content, chunk_type, importance, 0.25 AS score
+                   FROM memory_child_chunks
+                   WHERE content LIKE ? ESCAPE '\\'
+                   ORDER BY importance DESC, created_at DESC LIMIT ?""",
+                (self._like_pattern(query), limit),
+            )
+            return [dict(row) for row in await cursor.fetchall()]
 
     async def get_child_parent_ids(self, child_ids: list[int]) -> list[int]:
         """根据子chunk ID列表获取去重后的父chunk ID列表。"""

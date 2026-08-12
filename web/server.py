@@ -406,64 +406,92 @@ async def _init_mail_poller(core: Any, config_service: Any) -> tuple[str, Any]:
         return ("mail_poller", None)
 
 
-async def _start_services(app: Any, core: Any) -> None:
-    """启动正常模式下的所有服务组件（PluginManager、MediaTaskQueue、GreetingScheduler、QQ Bot）。"""
+async def _start_local_services(app: Any, core: Any) -> None:
+    """Start services which must work before any model API key is configured.
+
+    Plugins, local MCP processes, media task persistence, and schedule CRUD are
+    product capabilities in their own right. Keeping them behind the Provider
+    credential gate made a fresh Android install look incomplete and prevented
+    locally installed plugins from being discovered.
+    """
     from web.config_service import get_config_service
     from web.greeting_scheduler import GreetingScheduler
     from web.media_tasks import MediaTaskQueue
     from web.routers.tools import apply_tool_overrides
     from web.ws_hub import manager, start_media_cleanup
 
-    # _apply_model_overrides 已提到 lifespan 中无条件执行（在降级判定之前），
-    # 保证降级模式下也能注册已保存的自定义 provider / 恢复路由 / 恢复 chat_model。
-    # 这里不再重复调用，避免对 router 做二次注册。
     apply_tool_overrides()
     start_media_cleanup()
     await _start_user_mcp_servers(core)
 
-    # Initialize Plugin Manager
-    from plugins.manager import PluginManager
-    plugin_manager = PluginManager(
-        tool_registry=None,
-        hook_engine=core._hook_engine if hasattr(core, "_hook_engine") else None,
-        memory_manager=core.memory if hasattr(core, "memory") else None,
-        knowledge_graph=core.kg if hasattr(core, "kg") else None,
-        mcp_manager=core._mcp_manager,
-        agent_core=core,
-    )
-    import tool_engine.tool_registry as _tool_registry_mod
-    plugin_manager._tool_registry = _tool_registry_mod
+    plugin_manager = getattr(app.state, "plugin_manager", None)
+    if plugin_manager is None:
+        from plugins.manager import PluginManager
+        import tool_engine.tool_registry as _tool_registry_mod
+
+        plugin_manager = PluginManager(
+            tool_registry=_tool_registry_mod,
+            hook_engine=core._hook_engine if hasattr(core, "_hook_engine") else None,
+            memory_manager=core.memory if hasattr(core, "memory") else None,
+            knowledge_graph=core.kg if hasattr(core, "kg") else None,
+            mcp_manager=core._mcp_manager,
+            agent_core=core,
+        )
+        app.state.plugin_manager = plugin_manager
+    else:
+        # The same core instance is completed in-place after a Provider is added.
+        plugin_manager._memory = core.memory if hasattr(core, "memory") else None
+        plugin_manager._kg = core.kg if hasattr(core, "kg") else None
+        plugin_manager._mcp = core._mcp_manager
+        plugin_manager._agent_core = core
     plugin_manager.discover()
-    app.state.plugin_manager = plugin_manager
 
-    queue = MediaTaskQueue(core, manager.broadcast)
-    queue.start()
-    app.state.media_queue = queue
+    queue = getattr(app.state, "media_queue", None)
+    if queue is None:
+        queue = MediaTaskQueue(core, manager.broadcast)
+        queue.start()
+        app.state.media_queue = queue
 
-    scheduler = GreetingScheduler(core, get_config_service(), manager.broadcast)
-    scheduler.start()
-    app.state.greeting_scheduler = scheduler
+    scheduler = getattr(app.state, "greeting_scheduler", None)
+    if scheduler is None:
+        scheduler = GreetingScheduler(core, get_config_service(), manager.broadcast)
+        scheduler.start()
+        app.state.greeting_scheduler = scheduler
 
-    # G16: 独立调度器并行初始化（recall/spontaneous/growth/mail）
-    # 这 4 个调度器相互独立、各自 try/except 包裹（单点失败不影响其他），
-    # 用 asyncio.gather 并行启动以缩短启动时间（参考 docs/performance_audit_2026-07-20.md）。
+    app.state.last_emotion = getattr(app.state, "last_emotion", None)
+
+
+async def _start_services(app: Any, core: Any) -> None:
+    """Start all local services plus Provider-dependent background integrations."""
+    from web.config_service import get_config_service
+
+    await _start_local_services(app, core)
+
+    # Provider-dependent schedulers. Each initializer contains its own error
+    # isolation; avoid replacing an already running instance on reinitialization.
     config_service = get_config_service()
-    init_results = await asyncio.gather(
+    initializers = [
         _init_recall_scheduler(core),
         _init_spontaneous_recall(core),
         _init_growth_narrative(core),
         _init_mail_poller(core, config_service),
-        return_exceptions=False,  # 每个函数内部已 try/except，不会抛异常
-    )
+    ]
+    init_results = await asyncio.gather(*initializers, return_exceptions=False)
     for attr_name, instance in init_results:
-        if instance is not None:
+        if instance is None:
+            continue
+        existing = getattr(app.state, attr_name, None)
+        if existing is None:
             setattr(app.state, attr_name, instance)
+        elif hasattr(instance, "stop"):
+            # Initializers start their instance. Do not leak a duplicate if this
+            # path is entered again after a Provider update.
+            try:
+                await instance.stop()
+            except Exception:
+                logger.debug("webui.duplicate_service_stop_failed attr={}", attr_name, exc_info=True)
 
-    # QQ Bot：走统一入口 ensure_qq_bot_task，相同凭证下并发调用（_background_reinit
-    # 与 _start_services 同时触发）会通过指纹合并复用现有 task，避免重复启动抖动
     await ensure_qq_bot_task(app)
-    # 微信 Bot：若有凭证自动启动长轮询（凭证由 WebUI 扫码登录保存）
-    # 服务重启后自动恢复，保持登录状态；无凭证时静默跳过
     await _ensure_wechat_bot_task(app)
     app.state.last_emotion = None
 
@@ -628,12 +656,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[Any]:
     await _apply_model_overrides(core)
     if not _has_any_provider_credential():
         logger.info("webui.degraded_mode")
-        # 初始化空的 plugin/media/scheduler 避免后续 AttributeError
-        app.state.plugin_manager = None
-        app.state.media_queue = None
-        app.state.greeting_scheduler = None
+        # Local-first capabilities remain available before a model key is added.
+        await _start_local_services(app, core)
         app.state.qq_task = None
-        app.state.last_emotion = None
         logger.info("webui.lifespan.ready_degraded")
     else:
         await _start_services(app, core)
