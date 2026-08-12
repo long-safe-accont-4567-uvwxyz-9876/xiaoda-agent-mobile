@@ -211,8 +211,18 @@ chaquopy {
             install("fastapi==0.115.12")
             install("uvicorn==0.34.0")
             install("websockets==14.2")
-            install("pydantic==1.10.21")
             install("httpx==0.28.1")
+            // pydantic 2.x：plugins/manifest.py 等使用 field_validator（pydantic 2 API），
+            // openai 2.x 亦要求 pydantic 2；与 requirements.txt 的 pydantic>=2.13.4 对齐。
+            install("pydantic>=2.13.4,<3")
+            // 运行时顶层导入的第三方依赖（缺失会导致 ModuleNotFoundError）：
+            install("loguru>=0.7.3")
+            install("python-dotenv>=1.2.1")
+            install("pyyaml>=6.0")
+            install("openai>=2.41.0")
+            install("certifi>=2024.7.0")
+            install("jieba>=0.42.1")
+            install("cryptography>=43.0.0")
         }
     }
     sourceSets {
