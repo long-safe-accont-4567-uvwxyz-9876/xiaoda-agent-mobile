@@ -98,7 +98,9 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
           working-directory: android
-          script: ./gradlew connectedCheck
+          # 有界脚本：job 级 timeout-minutes 对 emulator-runner 分离的模拟器进程不生效（实测挂 5h 未终止）。
+          # 用 coreutils 的 timeout 在脚本层硬性箍住 gradle，保证 step 一定结束、能上传诊断日志定位根因。
+          script: timeout 1500 ./gradlew connectedCheck --stacktrace
 
       - name: Upload connected test results (diagnostics)
         if: always()

@@ -12,7 +12,9 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.Timeout
 import org.junit.runner.RunWith
 import java.net.HttpURLConnection
 import java.net.InetAddress
@@ -28,6 +30,11 @@ import java.util.concurrent.atomic.AtomicReference
 @RunWith(AndroidJUnit4::class)
 class MainActivityLocalBackendTest {
     private val context = ApplicationProvider.getApplicationContext<Context>()
+
+    // 兜底：即使某个测试内部某步被模拟器/后端卡死，也在 5 分钟内强制失败，
+    // 避免整个 connectedCheck 因单个测试无限挂起（配合 workflow 脚本层 timeout 双保险）。
+    @get:Rule
+    val globalTimeout: Timeout = Timeout.seconds(300)
 
     @Test
     fun activityAlwaysUsesTheEmbeddedLoopbackBackend() {
