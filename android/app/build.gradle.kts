@@ -262,7 +262,10 @@ chaquopy {
     }
 }
 
-tasks.named("preBuild").configure { dependsOn(verifyGeneratedWebAssets, stageConfigAssets) }
+tasks.named("preBuild").configure {
+    dependsOn(verifyGeneratedWebAssets)
+    dependsOn(stageConfigAssets)
+}
 
 kotlin {
     jvmToolchain(17)
