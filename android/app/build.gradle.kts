@@ -227,6 +227,8 @@ chaquopy {
             install("python-multipart>=0.0.9")
             // /metrics 端点（web/routers/metrics.py 顶层导入 prometheus_client）。
             install("prometheus-client>=0.20.0")
+            // db/database.py 及多个 db/* 子模块顶层 import aiosqlite（异步 sqlite 驱动）。
+            install("aiosqlite>=0.20.0")
             // agent_core/message_processor.py 顶层 ZoneInfo("Asia/Shanghai")；
             // Android tzdata 非 Python 包内，需显式安装 tzdata 提供 IANA 时区数据库。
             install("tzdata>=2024.1")
