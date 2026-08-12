@@ -223,7 +223,9 @@ chaquopy {
             install("certifi>=2024.7.0")
             // 注意：jieba 在 PyPI 只有 sdist（无 wheel），Chaquopy 要求 wheel，无法安装。
             // 运行时已全部改为 lazy import + 降级（见 core/jieba_prewarm.py、memory/key_extractor.py）。
-            install("cryptography>=43.0.0")
+            // cryptography：Chaquopy 源最高提供 42.0.8（requirements.txt 为 >=43.0.0），
+            // 代码仅用 Cipher/padding/Fernet，42.0.8 完全兼容，故在 Android 侧固定该版本。
+            install("cryptography==42.0.8")
         }
     }
     sourceSets {
