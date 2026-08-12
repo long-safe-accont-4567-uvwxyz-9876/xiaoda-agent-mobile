@@ -81,6 +81,52 @@ val verifyGeneratedWebAssets by tasks.registering {
     }
 }
 
+// The embedded backend (web.server) imports the whole repository's runtime packages
+// (tools, db, core, config, web, utils, security, tool_engine, ...). Chaquopy only
+// packages the Python source dirs it is told about, so we stage a copy of the
+// repository root into the build dir, excluding non-runtime content, and point
+// Chaquopy at that staged directory.
+val pythonRuntimeDir = layout.buildDirectory.dir("intermediates/pythonRuntime")
+val stagePythonRuntime by tasks.registering(Sync::class) {
+    from(repositoryRoot)
+    into(pythonRuntimeDir)
+    exclude(
+        "web/frontend/**",
+        "**/node_modules/**",
+        "**/__pycache__/**",
+        "**/.git/**",
+        "tests/**",
+        "scripts/**",
+        "docs/**",
+        "audit/**",
+        "deploy/**",
+        "output/**",
+        "specs/**",
+        "codeact/**",
+        "assets/**",
+        "android/**",
+        "evaluation/**",
+        "chaos/**",
+        ".venv/**",
+        ".pytest_cache/**",
+        ".ruff_cache/**",
+        ".scan_reports/**",
+        ".learnings/**",
+        ".playwright-cli/**",
+        ".superpowers/**",
+        ".dbg/**",
+        "tmp/**",
+        "nohup.out",
+        "*.log",
+    )
+}
+// Ensure the staged Python tree is ready before any Chaquopy/Android packaging step.
+tasks.configureEach {
+    if (name.contains("Python", ignoreCase = true) || name == "preBuild") {
+        dependsOn(stagePythonRuntime)
+    }
+}
+
 val keystoreFile = rootProject.file("keystore/xiaoda-release.jks")
 val keystorePassword = System.getenv("XIAODA_KEYSTORE_PASSWORD")
 val hasReleaseKey = keystoreFile.exists() && !keystorePassword.isNullOrEmpty()
@@ -169,6 +215,7 @@ chaquopy {
     sourceSets {
         getByName("main") {
             srcDir("src/main/python")
+            srcDir(pythonRuntimeDir)
         }
     }
 }
