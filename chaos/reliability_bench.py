@@ -35,13 +35,11 @@ from typing import Any
 
 from loguru import logger
 
-# 从 chaos 内部导入，断开对 tests/ 的生产依赖
 from chaos._fault_types import (
     FaultConfig,
-    SimpleFaultInjectingLLMClient,
     FaultType,
+    SimpleFaultInjectingLLMClient,
 )
-
 
 # ============================================================
 # 数据结构
@@ -435,7 +433,7 @@ class ReliabilityBench:
 
         注入 30% 概率超时, 跑 N 次请求, 验证 agent 能通过降级恢复
         """
-        t0 = time.time()
+        t0 = time.perf_counter()
         backup = self._backup_faults()
         self.fault_client._faults.clear()
         self.fault_client.add_fault(
@@ -461,7 +459,7 @@ class ReliabilityBench:
                 user_interrupt = True
 
         self._restore_faults(backup)
-        duration = time.time() - t0
+        duration = time.perf_counter() - t0
         passed = (recovered >= injected) and not user_interrupt
         # 平均恢复时间 = 总耗时 / 注入故障数
         recovery_time = duration / max(injected, 1) if injected > 0 else 0.0

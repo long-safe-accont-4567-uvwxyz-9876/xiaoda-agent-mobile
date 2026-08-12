@@ -10,7 +10,7 @@ Bug: _run_desktop 在 win32 下无条件调用 GetConsoleWindow + ShowWindow(SW_
 3. 若附加进程 > 1，说明与父进程共享，不隐藏
 """
 import sys
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -31,7 +31,10 @@ def test_should_hide_when_only_self_attached():
     _skip_if_not_windows()
     import agent
 
-    with patch("ctypes.windll.kernel32.GetConsoleProcessList") as mock_list:
+    with (
+        patch("ctypes.windll.kernel32.GetConsoleWindow", return_value=1),
+        patch("ctypes.windll.kernel32.GetConsoleProcessList") as mock_list,
+    ):
         # GetConsoleProcessList(buf, buf_size) returns count of processes attached
         # 我们让返回 1（只有本进程）
         def _side_effect(buf, size):
@@ -47,7 +50,10 @@ def test_should_not_hide_when_shared_with_parent():
     _skip_if_not_windows()
     import agent
 
-    with patch("ctypes.windll.kernel32.GetConsoleProcessList") as mock_list:
+    with (
+        patch("ctypes.windll.kernel32.GetConsoleWindow", return_value=1),
+        patch("ctypes.windll.kernel32.GetConsoleProcessList") as mock_list,
+    ):
         # 返回 2 表示有 2 个进程附加（本进程 + 父进程 cmd.exe）
         def _side_effect(buf, size):
             buf[0] = 1234  # 本进程

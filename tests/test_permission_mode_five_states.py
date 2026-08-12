@@ -2,15 +2,15 @@
 
 测试 security/permission_manager.py 新增的 DISCUSS/PLAN/INTERACTIVE/AUTO/CUSTOM 模式。
 """
-import os
+from unittest.mock import patch
+
 import pytest
 
 from security.permission_manager import (
-    PermissionMode,
-    PermissionManager,
-    READ_ONLY_MODES,
     AUTO_APPROVE_MODES,
-    get_permission_manager,
+    READ_ONLY_MODES,
+    PermissionManager,
+    PermissionMode,
 )
 
 
@@ -90,6 +90,18 @@ class TestCheckToolPermissionNewModes:
     @pytest.fixture
     def pm(self):
         return PermissionManager()
+
+    @pytest.fixture(autouse=True)
+    def registered_tools(self):
+        from tool_engine.tool_registry import ToolPermission
+
+        with patch("tool_engine.tool_registry.get_tool") as get_tool:
+            get_tool.side_effect = lambda name: {
+                "web_search": {"permission": ToolPermission.READ_ONLY},
+                "write_file": {"permission": ToolPermission.READ_WRITE},
+                "shell_command": {"permission": ToolPermission.EXECUTE},
+            }.get(name)
+            yield
 
     def test_discuss_mode_allows_readonly(self, pm):
         """DISCUSS 模式允许只读工具"""
@@ -210,7 +222,6 @@ class TestInteractiveWriteToolFix:
         pm.set_mode(PermissionMode.INTERACTIVE)
         # remember/delete_reminder 是 READ_WRITE 但可能不在 _SENSITIVE_TOOLS
         # 模拟一个未注册的写工具
-        from unittest.mock import patch
         with patch("tool_engine.tool_registry.get_tool") as mock_get:
             mock_get.return_value = {"permission": "read_write"}
             allowed, reason = pm.check_tool_permission("remember")
@@ -220,7 +231,6 @@ class TestInteractiveWriteToolFix:
     def test_interactive_blocks_execute_tool(self, pm):
         """INTERACTIVE 模式应拦截 EXECUTE 权限工具。"""
         pm.set_mode(PermissionMode.INTERACTIVE)
-        from unittest.mock import patch
         with patch("tool_engine.tool_registry.get_tool") as mock_get:
             mock_get.return_value = {"permission": "execute"}
             allowed, reason = pm.check_tool_permission("some_exec_tool")
@@ -230,7 +240,6 @@ class TestInteractiveWriteToolFix:
     def test_interactive_allows_unknown_tool_no_metadata(self, pm):
         """INTERACTIVE 模式下工具无元数据且不在敏感名单时放行。"""
         pm.set_mode(PermissionMode.INTERACTIVE)
-        from unittest.mock import patch
         with patch("tool_engine.tool_registry.get_tool") as mock_get:
             mock_get.return_value = None
             allowed, _ = pm.check_tool_permission("totally_unknown_tool")
@@ -239,7 +248,6 @@ class TestInteractiveWriteToolFix:
     def test_custom_blocks_write_tool_not_in_sensitive(self, pm):
         """CUSTOM 模式应拦截不在 _SENSITIVE_TOOLS 且不在 auto_allow 中的写工具。"""
         pm.set_mode(PermissionMode.CUSTOM)
-        from unittest.mock import patch
         with patch("tool_engine.tool_registry.get_tool") as mock_get:
             mock_get.return_value = {"permission": "read_write"}
             allowed, reason = pm.check_tool_permission("remember")

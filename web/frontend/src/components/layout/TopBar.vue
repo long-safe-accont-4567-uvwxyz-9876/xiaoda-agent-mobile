@@ -11,6 +11,10 @@ const chat = useChatStore()
 const agentsStore = useAgentsStore()
 const ws = getWsClient()
 
+function onAvatarError(agent: { wallpaper?: string }) {
+  agent.wallpaper = ''
+}
+
 function onConfigChanged(e: any) {
   // display_name 等变更 → 全局联动刷新 Agent 列表 + 名称映射
   if (e.domain === 'agents') {
@@ -49,7 +53,7 @@ const stageText: Record<string, string> = {
       >
         <span class="chip-avatar">
           <img v-if="a.wallpaper" :src="a.wallpaper" class="chip-avatar-img"
-               @error="onAvatarError" />
+               @error="onAvatarError(a)" />
           <template v-if="!a.wallpaper">{{ a.display_name.slice(0, 1) }}</template>
         </span>
         <span class="chip-name">{{ a.display_name }}</span>

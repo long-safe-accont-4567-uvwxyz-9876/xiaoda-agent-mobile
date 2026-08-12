@@ -11,12 +11,14 @@ ROUTE_EDITABLE_FIELDS 常量抽到本模块, 该模块仅依赖 config, 不依�
 """
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 from loguru import logger
 
 
 # 路由表可编辑字段 (供 web.routers.models / web.agent_registry 等使用)
 ROUTE_EDITABLE_FIELDS = {"model", "client", "max_tokens", "thinking", "timeout"}
+_migration_lock = threading.Lock()
 
 
 def _get_cred_dir() -> Path:
@@ -86,9 +88,7 @@ def _decode_key(encoded: str) -> str | None:
 def load_provider_key(provider_id: str) -> str:
     """读取 provider 凭证, 文件不存在返回空串.
 
-    自动迁移：
-    - 旧版 base64 文件首次读取后自动升级到 credential_vault 加密格式
-    - 明文 key 文件首次读取后自动加密存储（后续读取走解密流程）
+    本方法严格只读。旧格式升级必须显式调用 migrate_provider_key()。
     """
     fp = _key_file(provider_id)
     if not fp.exists():
@@ -98,20 +98,28 @@ def load_provider_key(provider_id: str) -> str:
         return ""
     decoded = _decode_key(raw)
     if decoded is not None:
-        try:
-            from security.credential_vault import is_encrypted
-            if not is_encrypted(raw):
-                fp.write_text(_encode_key(decoded) + "\n", encoding="utf-8")
-        except OSError:
-            pass
         return decoded
-    # 明文 key 未加密：自动加密存储，后续走解密流程
     if raw and not raw.startswith("enc:"):
-        try:
-            fp.write_text(_encode_key(raw) + "\n", encoding="utf-8")
-            return raw
-        except OSError:
-            pass
-    from loguru import logger
+        return raw
     logger.warning("provider_key.unrecognized_format provider={} raw_len={}", provider_id, len(raw))
     return ""
+
+
+def migrate_provider_key(provider_id: str) -> bool:
+    with _migration_lock:
+        fp = _key_file(provider_id)
+        if not fp.exists():
+            return False
+        raw = fp.read_text(encoding="utf-8").strip()
+        if not raw:
+            return False
+        from security.credential_vault import is_encrypted
+        if is_encrypted(raw):
+            return False
+        decoded = _decode_key(raw)
+        plain = decoded if decoded is not None else raw if not raw.startswith("enc:") else None
+        if plain is None:
+            return False
+        from utils.atomic_write import atomic_write
+        atomic_write(fp, _encode_key(plain) + "\n")
+        return True

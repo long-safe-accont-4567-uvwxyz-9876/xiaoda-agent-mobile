@@ -89,48 +89,36 @@ async def list_providers(request: Request) -> Any:
 @router.post("/models/providers", response_model=Envelope[dict])
 async def create_provider(body: dict, request: Request) -> Any:
     pid = (body.get("id") or "").strip()
-    fmt = body.get("format", "openai")
-    base_url = (body.get("base_url") or "").strip()
-    if not pid or not pid.replace("-", "_").isidentifier():
-        raise HTTPException(400, "id 必须是合法标识符（字母/数字/-/_）")
     if pid in ("mimo",):
         raise HTTPException(400, "不能覆盖内置 provider")
-    if fmt not in ("openai", "anthropic"):
-        raise HTTPException(400, "format 必须是 openai 或 anthropic")
-    if not base_url.startswith(("http://", "https://")):
-        raise HTTPException(400, "base_url 必须是 http(s) URL")
-    # SSRF 防护：校验 URL 不指向内网/元数据服务。
-    # 本地/容器内受信服务（如 Ollama localhost:11434）显式配置时放行，
-    # 与 setup 向导的 _test_ollama 本地豁免保持一致。
-    from security.ssrf_guard import validate_url, is_local_host
-    if not is_local_host(base_url):
-        allowed, reason = validate_url(base_url)
-        if not allowed:
-            raise HTTPException(400, f"base_url 安全检查失败: {reason}")
     cfg = _cfg(request)
-    if pid in (cfg.get("models.providers", {}) or {}):
-        raise HTTPException(400, f"provider {pid} 已存在")
-    record = {
-        "label": body.get("label", pid),
-        "format": fmt,
-        "base_url": base_url,
-        "default_model": body.get("default_model", ""),
-        "enabled": True,
-    }
     api_key = (body.get("api_key") or "").strip()
-    if not api_key:
-        raise HTTPException(400, "api_key 不能为空")
-    # 先注册客户端，成功后再持久化配置（避免部分失败状态）
+    validate_only = bool(body.get("validate_only", False))
+    record = {
+        "id": pid,
+        "label": body.get("label", pid),
+        "format": body.get("format", "openai"),
+        "base_url": body.get("base_url", ""),
+        "default_model": body.get("default_model", ""),
+        "enabled": body.get("enabled", True),
+    }
     try:
-        _save_key_and_register(request, pid, fmt, base_url, api_key)
-    except Exception as e:
-        logger.error("provider.register_failed id={} error={}", pid, str(e))
-        raise HTTPException(500, f"provider 注册失败: {e}") from None
-    cfg.set(f"models.providers.{pid}", record)
+        from web.provider_coordinator import ProviderValidationError, get_provider_coordinator
+        coordinator = get_provider_coordinator(cfg=cfg, router=_router_of(request))
+        data = await coordinator.create(
+            record,
+            api_key,
+            validate_only=validate_only,
+            candidate_validator=_validate_provider_candidate,
+        )
+    except ProviderValidationError as e:
+        raise HTTPException(400, f"{e.layer} 验证失败: {e}") from None
+    if validate_only:
+        return Envelope(data=data)
     await _audit(request, "provider.create", pid)
     await invalidate_discovery_cache()
     await _broadcast_changed()
-    return Envelope(data=dict(record, id=pid, key_masked=_mask(api_key), builtin=False))
+    return Envelope(data=dict(data, key_masked=_mask(api_key), builtin=False))
 
 
 @router.put("/models/providers/{pid}", response_model=Envelope[dict])
@@ -140,27 +128,29 @@ async def update_provider(pid: str, body: dict, request: Request) -> Any:
     if pid in ("mimo",) or not record:
         raise HTTPException(404 if not record else 400,
                             "内置 provider 不可修改" if record else f"provider {pid} 不存在")
-    for f in ("label", "format", "base_url", "default_model", "enabled"):
-        if f in body and body[f] is not None:
-            record[f] = body[f]
-    # base_url 变更时同样做 SSRF 校验（本地服务如 Ollama 放行）
-    if "base_url" in body and body["base_url"]:
-        from security.ssrf_guard import validate_url, is_local_host
-        _burl = str(body["base_url"]).strip()
-        if not _burl.startswith(("http://", "https://")):
-            raise HTTPException(400, "base_url 必须是 http(s) URL")
-        if not is_local_host(_burl):
-            allowed, reason = validate_url(_burl)
-            if not allowed:
-                raise HTTPException(400, f"base_url 安全检查失败: {reason}")
-    cfg.set(f"models.providers.{pid}", record)
-    key = load_provider_key(pid)
-    if key:
-        _save_key_and_register(request, pid, record["format"], record["base_url"], key)
+    changes = {f: body[f] for f in ("label", "format", "base_url", "default_model", "enabled")
+               if f in body and body[f] is not None}
+    api_key = (body.get("api_key") or "").strip() or None
+    validate_only = bool(body.get("validate_only", False))
+    try:
+        from web.provider_coordinator import ProviderValidationError, get_provider_coordinator
+        coordinator = get_provider_coordinator(cfg=cfg, router=_router_of(request))
+        data = await coordinator.update(
+            pid,
+            changes,
+            api_key=api_key,
+            validate_only=validate_only,
+            candidate_validator=_validate_provider_candidate,
+        )
+    except ProviderValidationError as e:
+        raise HTTPException(400, f"{e.layer} 验证失败: {e}") from None
+    if validate_only:
+        return Envelope(data=data)
+    key = api_key or load_provider_key(pid)
     await _audit(request, "provider.update", pid)
     await invalidate_discovery_cache()
     await _broadcast_changed()
-    return Envelope(data=dict(record, id=pid, key_masked=_mask(key), builtin=False))
+    return Envelope(data=dict(data, key_masked=_mask(key), builtin=False))
 
 
 @router.delete("/models/providers/{pid}", response_model=Envelope[dict])
@@ -195,6 +185,16 @@ def _save_key_and_register(request: Request, pid: str, fmt: str,
         os.chmod(fp, 0o600)
     from web.custom_providers import register_into_router
     register_into_router(_router_of(request), pid, fmt, base_url, api_key)
+
+
+def _validate_provider_candidate(candidate: Any, record: dict) -> bool:
+    from security.ssrf_guard import is_local_host, validate_url
+    base_url = record["base_url"]
+    if not is_local_host(base_url):
+        allowed, reason = validate_url(base_url)
+        if not allowed:
+            raise ValueError(reason)
+    return candidate is not None
 
 
 @router.post("/models/providers/{pid}/key", response_model=Envelope[dict])

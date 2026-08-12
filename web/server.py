@@ -28,6 +28,9 @@ async def _apply_model_overrides(core: Any) -> None:
 
     logger.info("webui._apply_model_overrides_start")
     cfg = get_config_service()
+    from web.provider_coordinator import get_provider_coordinator
+    provider_coordinator = get_provider_coordinator(cfg=cfg, router=core.router)
+    provider_coordinator.recover_startup()
 
     # 从 .env 文件读取，而非 os.environ，防止构建环境变量泄露到用户安装包
     try:

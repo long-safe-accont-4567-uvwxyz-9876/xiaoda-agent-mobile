@@ -671,7 +671,9 @@ class ModelRouter:
             from web.config_service import get_config_service
             from web._provider_keys import load_provider_key
             from web.custom_providers import register_into_router
+            from web.provider_coordinator import get_provider_coordinator
             cfg = get_config_service()
+            get_provider_coordinator(cfg=cfg, router=self)
             record = cfg.get(f"models.providers.{provider}")
             if record:
                 api_key = load_provider_key(provider)

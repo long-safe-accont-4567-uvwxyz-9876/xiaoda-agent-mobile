@@ -549,8 +549,9 @@ class TestFilePathSandbox:
     def test_validate_path_allows_tmp(self):
         """测试 /tmp 目录被允许"""
         from tools.file_tools_v2 import _validate_path
-        allowed, _resolved, reason = _validate_path("/tmp/test_file.txt")
-        assert allowed is True, f"/tmp 应被允许: {reason}"
+        temp_file = Path(tempfile.gettempdir()) / "test_file.txt"
+        allowed, _resolved, reason = _validate_path(str(temp_file))
+        assert allowed is True, f"临时目录应被允许: {reason}"
 
     def test_validate_path_rejects_random_path(self):
         """测试不在白名单中的路径被拒绝"""
@@ -561,6 +562,6 @@ class TestFilePathSandbox:
     def test_validate_path_write_mode_restrictions(self):
         """测试写入模式的额外限制"""
         from tools.file_tools_v2 import _validate_path
-        # /tmp 应允许写入
-        allowed, _resolved, reason = _validate_path("/tmp/test_write.txt", mode="write")
-        assert allowed is True, f"/tmp 写入应被允许: {reason}"
+        temp_file = Path(tempfile.gettempdir()) / "test_write.txt"
+        allowed, _resolved, reason = _validate_path(str(temp_file), mode="write")
+        assert allowed is True, f"临时目录写入应被允许: {reason}"

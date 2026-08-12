@@ -366,7 +366,9 @@ def _get_all_providers() -> list[dict]:
     try:
         from web.config_service import get_config_service
         from web._provider_keys import load_provider_key
+        from web.provider_coordinator import get_provider_coordinator
         cfg = get_config_service()
+        get_provider_coordinator(cfg=cfg)
         custom = cfg.get("models.providers", {}) or {}
         # 按 order 字段升序排列；未设置 order 的排在已设置之后，按字典插入顺序
         keys_order = list(custom.keys())

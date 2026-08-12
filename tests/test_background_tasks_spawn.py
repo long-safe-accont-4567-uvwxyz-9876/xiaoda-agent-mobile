@@ -2,9 +2,14 @@
 from __future__ import annotations
 
 import asyncio
+
 import pytest
 
-from core.background_tasks import _spawn, _bg_tasks
+from core.background_tasks import BackgroundTaskManager, _bg_tasks, _spawn
+
+
+def test_background_task_manager_shares_tracking_collection():
+    assert BackgroundTaskManager.get_bg_tasks() is _bg_tasks
 
 
 def test_spawn_no_running_loop():

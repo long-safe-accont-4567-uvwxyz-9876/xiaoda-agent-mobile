@@ -103,8 +103,6 @@ if !EXITCODE! equ 0 (
 )
 echo.
 
-:: --launch 模式（安装完成页"运行自检并启动"）：
-:: 自检结束后自动启动主程序，窗口 8 秒后自动关闭，不阻塞用户。
 if "!LAUNCH!"=="1" (
     if defined EXE_PATH (
         echo   [i] Self-check finished, starting Xiaoda Agent...
@@ -121,8 +119,6 @@ if "!LAUNCH!"=="1" (
     )
     echo.
     echo   This window will close automatically in 8 seconds...
-    :: 用 ping 延迟而非 timeout：安装完成页（ShellExecute）等无输入环境
-    :: 下 timeout 会报 "Input redirection is not supported"（v0.5.62 修复）
     ping 127.0.0.1 -n 9 >nul
     exit /b !EXITCODE!
 )
