@@ -97,8 +97,24 @@ def _run_server(host: str, port: int) -> None:
     try:
         _install_pydantic_compatibility()
         import asyncio
+        import io
+        import logging
         import uvicorn
         from web.server import app
+
+        # uvicorn 在 lifespan 启动失败时仅 logger.exception() 后静默返回，
+        # 异常不会向外抛出，导致 server.started 恒为 False 却看不到根因。
+        # 这里把 uvicorn 的日志重定向到内存缓冲，失败时一并写入 _server_error。
+        log_buffer = io.StringIO()
+        _uvicorn_handler = logging.StreamHandler(log_buffer)
+        _uvicorn_handler.setFormatter(
+            logging.Formatter("%(levelname)s %(name)s: %(message)s")
+        )
+        for _name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+            _uv_logger = logging.getLogger(_name)
+            _uv_logger.handlers.clear()
+            _uv_logger.propagate = False
+            _uv_logger.addHandler(_uvicorn_handler)
 
         config = uvicorn.Config(
             app,
@@ -117,6 +133,9 @@ def _run_server(host: str, port: int) -> None:
         server.run()
         if not server.started and _server_error is None:
             _server_error = "Uvicorn stopped before accepting local connections"
+            _captured = log_buffer.getvalue().strip()
+            if _captured:
+                _server_error += "\n--- uvicorn log ---\n" + _captured
     except BaseException:
         _server_error = traceback.format_exc()
         _started.set()
