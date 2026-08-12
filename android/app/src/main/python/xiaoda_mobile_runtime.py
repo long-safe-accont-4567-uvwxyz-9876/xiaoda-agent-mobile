@@ -94,6 +94,8 @@ def _install_pydantic_compatibility() -> None:
 
 def _run_server(host: str, port: int) -> None:
     global _server_error
+    _stderr = sys.stderr
+    _stdout = sys.stdout
     try:
         _install_pydantic_compatibility()
         import asyncio
@@ -102,11 +104,13 @@ def _run_server(host: str, port: int) -> None:
         import uvicorn
         from web.server import app
 
-        # uvicorn 在 lifespan 启动失败时仅 logger.exception() 后静默返回，
-        # 异常不会向外抛出，导致 server.started 恒为 False 却看不到根因。
-        # 关键：uvicorn 的 Config.configure_logging() 会重置日志 handler，
-        # 因此必须传 log_config=None 阻止其重配，再自行挂 handler 捕获日志。
+        # 全量捕获诊断信息：uvicorn 的 lifespan 启动失败时只 logger.exception()
+        # 后静默返回，异常不会向外抛出，导致 server.started 恒为 False 却看不到根因。
+        # loguru（web/server.py 的 lifespan 用的就是它）默认写 sys.stderr，
+        # 因此同时重定向 stderr/stdout 并让 uvicorn 日志走 DEBUG 级，才能拿到真实报错。
         log_buffer = io.StringIO()
+        sys.stdout = log_buffer
+        sys.stderr = log_buffer
         _uvicorn_handler = logging.StreamHandler(log_buffer)
         _uvicorn_handler.setFormatter(
             logging.Formatter("%(levelname)s %(name)s: %(message)s")
@@ -114,6 +118,7 @@ def _run_server(host: str, port: int) -> None:
         for _name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
             _uv_logger = logging.getLogger(_name)
             _uv_logger.handlers.clear()
+            _uv_logger.setLevel(logging.DEBUG)
             _uv_logger.propagate = False
             _uv_logger.addHandler(_uvicorn_handler)
 
@@ -121,7 +126,7 @@ def _run_server(host: str, port: int) -> None:
             app,
             host=host,
             port=port,
-            log_level="info",
+            log_level="debug",
             access_log=False,
             ws="websockets",
             loop="asyncio",
@@ -135,12 +140,22 @@ def _run_server(host: str, port: int) -> None:
         server.run()
         if not server.started and _server_error is None:
             _server_error = "Uvicorn stopped before accepting local connections"
+            # 优先取 uvicorn 内部保存的真实 lifespan 异常（app 抛错时 uvicorn 会吞掉）
+            _lifespan_exc = getattr(getattr(server, "lifespan", None), "exception", None)
+            if _lifespan_exc is not None:
+                import traceback as _tb
+                _server_error += "\n--- lifespan exception ---\n" + "".join(
+                    _tb.format_exception(type(_lifespan_exc), _lifespan_exc, _lifespan_exc.__traceback__)
+                )
             _captured = log_buffer.getvalue().strip()
             if _captured:
-                _server_error += "\n--- uvicorn log ---\n" + _captured
+                _server_error += "\n--- backend log ---\n" + _captured
     except BaseException:
         _server_error = traceback.format_exc()
         _started.set()
+    finally:
+        sys.stdout = _stdout
+        sys.stderr = _stderr
 
 
 def start_server(files_dir: str, no_backup_dir: str, cache_dir: str, port: int = 8765) -> dict[str, Any]:
