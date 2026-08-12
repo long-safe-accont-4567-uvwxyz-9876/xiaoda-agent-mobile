@@ -50,7 +50,7 @@ def _migrate_legacy_android_data(data_root: Path) -> None:
             if source.is_file():
                 _copy_missing_file(source, target_root / source.relative_to(source_root))
 
-def _configure_android_environment(files_dir: str, no_backup_dir: str, cache_dir: str) -> None:
+def _configure_android_environment(files_dir: str, no_backup_dir: str, cache_dir: str, bundled_config: str = "") -> None:
     home = Path(files_dir).resolve()
     private_root = home / "xiaoda"
     data_root = private_root / ".ai-agent" / "data"
@@ -62,18 +62,23 @@ def _configure_android_environment(files_dir: str, no_backup_dir: str, cache_dir
     # source tree instead of the user's app data directory.
     data_root.mkdir(parents=True, exist_ok=True)
     _migrate_legacy_android_data(data_root)
-    os.environ.update(
-        {
-            "HOME": str(private_root),
-            "XIAODA_MOBILE": "1",
-            "XIAODA_ANDROID_FILES_DIR": str(home),
-            "XIAODA_ANDROID_NO_BACKUP_DIR": str(Path(no_backup_dir).resolve()),
-            "TMPDIR": str(Path(cache_dir).resolve()),
-            "KIOXIA_DATA_DIR": str(data_root),
-            "CREDENTIAL_SALT_FILE": str(private_root / ".ai-agent" / "config" / "credential_salt.bin"),
-            "PYTHONUTF8": "1",
-        }
-    )
+    env = {
+        "HOME": str(private_root),
+        "XIAODA_MOBILE": "1",
+        "XIAODA_ANDROID_FILES_DIR": str(home),
+        "XIAODA_ANDROID_NO_BACKUP_DIR": str(Path(no_backup_dir).resolve()),
+        "TMPDIR": str(Path(cache_dir).resolve()),
+        "KIOXIA_DATA_DIR": str(data_root),
+        "CREDENTIAL_SALT_FILE": str(private_root / ".ai-agent" / "config" / "credential_salt.bin"),
+        "PYTHONUTF8": "1",
+    }
+    if bundled_config:
+        # Chaquopy does not package the pure-data config/ directory, so the app
+        # ships it as Android assets and copies them into app-private storage.
+        # Point config._init_user_resources at that copy so it can seed the user
+        # config dir (agent.json5, security_patterns.yaml, agents/, workspace/...).
+        env["XIAODA_BUNDLED_CONFIG_DIR"] = str(Path(bundled_config).resolve())
+    os.environ.update(env)
     os.chdir(private_root)
 
 
@@ -158,10 +163,10 @@ def _run_server(host: str, port: int) -> None:
         sys.stderr = _stderr
 
 
-def start_server(files_dir: str, no_backup_dir: str, cache_dir: str, port: int = 8765) -> dict[str, Any]:
+def start_server(files_dir: str, no_backup_dir: str, cache_dir: str, port: int = 8765, bundled_config: str = "") -> dict[str, Any]:
     """Start the original Xiaoda FastAPI application on Android loopback."""
     global _server_thread
-    _configure_android_environment(files_dir, no_backup_dir, cache_dir)
+    _configure_android_environment(files_dir, no_backup_dir, cache_dir, bundled_config)
     if _server_thread is None or not _server_thread.is_alive():
         _server_thread = threading.Thread(
             target=_run_server,

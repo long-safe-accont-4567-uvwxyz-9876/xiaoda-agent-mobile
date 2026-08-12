@@ -4,6 +4,7 @@ import android.content.Context
 import com.chaquo.python.PyObject
 import com.chaquo.python.Python
 import com.chaquo.python.android.AndroidPlatform
+import java.io.File
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.util.concurrent.CopyOnWriteArrayList
@@ -34,6 +35,7 @@ object LocalBackendRuntime {
         if (!launchStarted.compareAndSet(false, true)) return
         executor.execute {
             try {
+                val bundledConfigDir = extractConfigAssets(context)
                 if (!Python.isStarted()) Python.start(AndroidPlatform(context.applicationContext))
                 val python = Python.getInstance()
                 val module = python.getModule("xiaoda_mobile_runtime")
@@ -47,10 +49,49 @@ object LocalBackendRuntime {
                     context.noBackupFilesDir.absolutePath,
                     context.cacheDir.absolutePath,
                     PORT,
+                    bundledConfigDir.absolutePath,
                 )
                 waitUntilListening(module)
             } catch (error: Throwable) {
                 publish(State.Failed(error.stackTraceToString().take(12_000)))
+            }
+        }
+    }
+
+    /**
+     * Copies the bundled config/ resources (agent.json5, security_patterns.yaml,
+     * agents/, workspace/, ...) from APK assets into app-private storage so the
+     * Python backend's config._init_user_resources can seed the user config dir.
+     * Returns the destination directory (guaranteed to exist).
+     */
+    private fun extractConfigAssets(context: Context): File {
+        val dest = File(context.filesDir, "xiaoda/bundled_config")
+        copyAssetTree(context, "config", dest)
+        return dest
+    }
+
+    private fun copyAssetTree(context: Context, assetPath: String, dest: File) {
+        val children = try {
+            context.assets.list(assetPath) ?: return
+        } catch (_: Exception) {
+            return
+        }
+        if (children.isEmpty()) return
+        dest.mkdirs()
+        for (child in children) {
+            val childAsset = if (assetPath.isEmpty()) child else "$assetPath/$child"
+            val childDest = File(dest, child)
+            val grandChildren = try {
+                context.assets.list(childAsset) ?: emptyArray()
+            } catch (_: Exception) {
+                emptyArray()
+            }
+            if (grandChildren.isNotEmpty()) {
+                copyAssetTree(context, childAsset, childDest)
+            } else {
+                context.assets.open(childAsset).use { input ->
+                    childDest.outputStream().use { output -> input.copyTo(output) }
+                }
             }
         }
     }

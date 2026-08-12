@@ -276,7 +276,10 @@ def _init_user_resources() -> None:
         return
 
     if is_mobile:
-        bundled_config = Path(__file__).resolve().parent / "config"
+        # Android ships config/ as APK assets (Chaquopy does not package the
+        # pure-data config/ dir). LocalBackendRuntime copies them to app-private
+        # storage and xiaoda_mobile_runtime exposes the path via this env var.
+        bundled_config = Path(os.getenv("XIAODA_BUNDLED_CONFIG_DIR", "") or (Path(__file__).resolve().parent / "config"))
     else:
         meipass = getattr(sys, "_MEIPASS", "")
         if not meipass:

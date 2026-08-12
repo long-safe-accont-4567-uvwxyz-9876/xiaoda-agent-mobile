@@ -130,6 +130,20 @@ tasks.configureEach {
     }
 }
 
+// The config/ directory (agent.json5, security_patterns.yaml, agents/, workspace/, ...)
+// contains only non-Python data files. Chaquopy packages Python source trees and does not
+// reliably include a pure-data top-level directory like config/, so at runtime
+// config._init_user_resources finds an empty bundled_config and never seeds the user
+// config dir. Ship config/ as ordinary Android assets instead, and copy them into
+// app-private storage in LocalBackendRuntime before the Python backend starts.
+val generatedConfigAssets = layout.buildDirectory.dir("generated/configAssets")
+val stageConfigAssets by tasks.registering(Sync::class) {
+    from(repositoryRoot) {
+        include("config/**")
+    }
+    into(generatedConfigAssets)
+}
+
 val keystoreFile = rootProject.file("keystore/xiaoda-release.jks")
 val keystorePassword = System.getenv("XIAODA_KEYSTORE_PASSWORD")
 val hasReleaseKey = keystoreFile.exists() && !keystorePassword.isNullOrEmpty()
@@ -194,6 +208,7 @@ android {
     }
 
     sourceSets.getByName("main").assets.srcDir(generatedWebAssets)
+    sourceSets.getByName("main").assets.srcDir(generatedConfigAssets)
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -247,7 +262,7 @@ chaquopy {
     }
 }
 
-tasks.named("preBuild").configure { dependsOn(verifyGeneratedWebAssets) }
+tasks.named("preBuild").configure { dependsOn(verifyGeneratedWebAssets, stageConfigAssets) }
 
 kotlin {
     jvmToolchain(17)
