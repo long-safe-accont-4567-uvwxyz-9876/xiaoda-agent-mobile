@@ -104,7 +104,8 @@ def _run_server(host: str, port: int) -> None:
 
         # uvicorn 在 lifespan 启动失败时仅 logger.exception() 后静默返回，
         # 异常不会向外抛出，导致 server.started 恒为 False 却看不到根因。
-        # 这里把 uvicorn 的日志重定向到内存缓冲，失败时一并写入 _server_error。
+        # 关键：uvicorn 的 Config.configure_logging() 会重置日志 handler，
+        # 因此必须传 log_config=None 阻止其重配，再自行挂 handler 捕获日志。
         log_buffer = io.StringIO()
         _uvicorn_handler = logging.StreamHandler(log_buffer)
         _uvicorn_handler.setFormatter(
@@ -124,6 +125,7 @@ def _run_server(host: str, port: int) -> None:
             access_log=False,
             ws="websockets",
             loop="asyncio",
+            log_config=None,  # 阻止 uvicorn 内部 configure_logging 覆盖上面的 handler
         )
         server = uvicorn.Server(config)
         # Python 3.11 在非主线程中运行 asyncio/uvicorn 必须显式绑定一个事件循环，
