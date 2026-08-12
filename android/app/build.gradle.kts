@@ -212,15 +212,19 @@ chaquopy {
             install("uvicorn==0.34.0")
             install("websockets==14.2")
             install("httpx==0.28.1")
-            // pydantic 2.x：plugins/manifest.py 等使用 field_validator（pydantic 2 API），
-            // openai 2.x 亦要求 pydantic 2；与 requirements.txt 的 pydantic>=2.13.4 对齐。
-            install("pydantic>=2.13.4,<3")
+            // pydantic：Chaquopy 源不为 pydantic 2.x 提供 pydantic-core（Rust 编译）的 Android wheel，
+            // 会导致 fastapi/openai 无法安装。故在 Android 侧固定纯 Python 的 pydantic 1.10.24，
+            // 并在 xiaoda_mobile_runtime.py 中通过 shim 适配 pydantic 2 API（model_dump/model_validate 等）。
+            install("pydantic==1.10.24")
             // 运行时顶层导入的第三方依赖（缺失会导致 ModuleNotFoundError）：
             install("loguru>=0.7.3")
             install("python-dotenv>=1.2.1")
             install("pyyaml>=6.0")
-            install("openai>=2.41.0")
+            // openai：1.39.0 不依赖 Rust 库 jiter，且兼容 pydantic 1.x；2.x 强制依赖 jiter 与 pydantic 2。
+            install("openai==1.39.0")
             install("certifi>=2024.7.0")
+            // FastAPI 文件上传（multipart/form-data）依赖 python-multipart。
+            install("python-multipart>=0.0.9")
             // 注意：jieba 在 PyPI 只有 sdist（无 wheel），Chaquopy 要求 wheel，无法安装。
             // 运行时已全部改为 lazy import + 降级（见 core/jieba_prewarm.py、memory/key_extractor.py）。
             // cryptography：Chaquopy 源最高提供 42.0.8（requirements.txt 为 >=43.0.0），
