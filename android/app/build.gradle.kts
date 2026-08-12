@@ -157,7 +157,7 @@ chaquopy {
         version = "3.11"
         // Cross-platform: prefer an explicit env override (CI sets XIAODA_BUILD_PYTHON),
         // otherwise fall back to the Windows developer path used on this machine.
-        buildPython = (System.getenv("XIAODA_BUILD_PYTHON") ?: "C:/Users/lenovo/AppData/Local/Programs/Python/Python311/python.exe")
+        buildPython = listOf(System.getenv("XIAODA_BUILD_PYTHON") ?: "C:/Users/lenovo/AppData/Local/Programs/Python/Python311/python.exe")
         pip {
             install("fastapi==0.115.12")
             install("uvicorn==0.34.0")
