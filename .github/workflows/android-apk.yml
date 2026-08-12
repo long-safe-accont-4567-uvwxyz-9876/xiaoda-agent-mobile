@@ -100,7 +100,8 @@ jobs:
           working-directory: android
           # 有界脚本：job 级 timeout-minutes 对 emulator-runner 分离的模拟器进程不生效（实测挂 5h 未终止）。
           # 用 coreutils 的 timeout 在脚本层硬性箍住 gradle，保证 step 一定结束、能上传诊断日志定位根因。
-          script: timeout 1500 ./gradlew connectedCheck --stacktrace
+          # --no-daemon：避免 gradle daemon 在测试结束后残留占用 runner，降低被误判为"还在跑"的概率。
+          script: timeout 1500 ./gradlew --no-daemon connectedCheck --stacktrace
 
       - name: Upload connected test results (diagnostics)
         if: always()
@@ -110,7 +111,7 @@ jobs:
           path: |
             android/app/build/outputs/androidTest-results/connected/**
             android/app/build/reports/androidTests/connected/**
-          if-no-files-found: continue
+          if-no-files-found: ignore
           retention-days: 14
 
       - name: Verify APK contents
