@@ -36,10 +36,16 @@ class VerifyApkTest(unittest.TestCase):
 
         self.assertTrue(any("terminal_start" in issue.lower() for issue in verify_apk(apk)))
 
-    def test_rejects_embedded_python_runtime(self) -> None:
-        apk = self.create_apk({"lib/arm64-v8a/libpython3.11.so": b"runtime"})
+    def test_accepts_embedded_python_runtime(self) -> None:
+        # Chaquopy bundles libpython + .py/.pyc legitimately (ADR-MOB2-011).
+        apk = self.create_apk(
+            {
+                "lib/arm64-v8a/libpython3.11.so": b"runtime",
+                "assets/xiaoda_mobile_runtime.py": b"print('ok')",
+            }
+        )
 
-        self.assertTrue(any("libpython" in issue for issue in verify_apk(apk)))
+        self.assertEqual([], verify_apk(apk))
 
     def test_rejects_forbidden_content_case_insensitively(self) -> None:
         apk = self.create_apk({"assets/config.json": b'{"provider": "OlLaMa"}'})
@@ -115,16 +121,22 @@ class VerifyApkTest(unittest.TestCase):
 
         self.assertEqual([], verify_apk(apk))
 
-    def test_rejects_python_source_by_archive_path(self) -> None:
-        apk = self.create_apk({"assets/bootstrap.py": b"print('blocked')"})
+    def test_accepts_python_source_by_archive_path(self) -> None:
+        # Embedded Python backend ships .py source; only genuine assets are scanned for
+        # retired local-AI content and secrets, not by file extension.
+        apk = self.create_apk({"assets/bootstrap.py": b"print('ok')"})
 
-        self.assertTrue(any(".py" in issue for issue in verify_apk(apk)))
+        self.assertEqual([], verify_apk(apk))
 
     def test_patterns_cover_prohibited_android_payloads(self) -> None:
         patterns = " ".join(FORBIDDEN_PATTERNS)
 
-        for value in ("agentcore", "fastapi", "ollama", "onnxruntime", "bge-small", "libpython", ".py", ".onnx"):
+        # Only retired local-AI artifacts stay forbidden under the embedded backend.
+        for value in ("ollama", "onnxruntime", "bge-small", ".onnx"):
             self.assertIn(value, patterns)
+        # Legitimate embedded-Python build content must not be forbidden.
+        for value in ("agentcore", "fastapi", "libpython", ".py"):
+            self.assertNotIn(value, patterns)
 
 
 if __name__ == "__main__":

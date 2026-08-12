@@ -100,10 +100,6 @@ def verify_source_tree(source_root: Path) -> list[str]:
             continue
         if path.suffix.lower() not in SOURCE_SUFFIXES:
             continue
-        # Test fixtures intentionally contain fake secrets (e.g. "sk-android-local-secret-123456")
-        # to exercise the provider API without real credentials. Skip them.
-        if "androidtest" in relative_parts or "test" in relative_parts:
-            continue
         content = path.read_bytes()
         for label, pattern in FORBIDDEN_SECRET_PATTERNS:
             if pattern.search(content):
