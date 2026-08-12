@@ -1,0 +1,8 @@
+{
+  "upload_max_bytes": 20971520,
+  "webview_session_cookie": {
+    "name": "xiaoda_webview_session",
+    "max_age_seconds": 300,
+    "same_site": "lax"
+  }
+}

@@ -35,6 +35,20 @@
   --sidebar-width: 64px;
   --sidebar-expanded: 280px;
   --topbar-height: 56px;
+
+  /* 移动壳 */
+  --bottom-nav-height: 64px;
+  --bottom-nav-touch: 48px;
+  --mobile-topbar-height: 52px;
+}
+
+/* ===== 移动壳层级 ===== */
+:root {
+  --z-mobile-shell: 40;
+  --z-mobile-dock: 41;
+  --z-mobile-drawer: 50;
+  --z-mobile-sheet: 60;
+  --z-mobile-fab: 55;
 }
 
 /* ===== 草元素美学 v2 · 层次色板与渐变 ===== */

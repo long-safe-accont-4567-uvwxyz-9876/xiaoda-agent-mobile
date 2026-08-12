@@ -205,6 +205,9 @@ MAIN_AGENT_META = {
     "enabled": True,
     "provider": DEFAULT_PROVIDER,
     "wallpaper": DEFAULT_WALLPAPERS["xiaoda"],
+    "wallpaper_focus": (0.5, 0.35),
+    "wallpaper_overlay": 0.28,
+    "wallpaper_motion": "full",
     "voice_ref": None,
     "route_description": "主体，默认对话对象，可委托其他子代理",
 }
@@ -215,6 +218,7 @@ _CONFIG_FIELDS = [
     "excluded_tools", "base_url", "api_key_env", "capabilities", "route_description",
     "mcp_servers", "max_spawn_depth", "max_turns", "effort", "permission_mode",
     "memory_scope", "background", "wallpaper",
+    "wallpaper_focus", "wallpaper_overlay", "wallpaper_motion",
     "allowed_paths", "forbidden_paths",
 ]
 
@@ -527,6 +531,9 @@ class AgentRegistry:
             "memory_scope": cfg.memory_scope,
             "background": cfg.background,
             "wallpaper": getattr(cfg, "wallpaper", "") or DEFAULT_WALLPAPERS.get(cfg.name, ""),
+            "wallpaper_focus": getattr(cfg, "wallpaper_focus", (0.5, 0.35)),
+            "wallpaper_overlay": getattr(cfg, "wallpaper_overlay", 0.28),
+            "wallpaper_motion": getattr(cfg, "wallpaper_motion", "full"),
             "allowed_paths": list(getattr(cfg, "allowed_paths", []) or []),
             "forbidden_paths": list(getattr(cfg, "forbidden_paths", []) or []),
             "tool_count": tool_count,

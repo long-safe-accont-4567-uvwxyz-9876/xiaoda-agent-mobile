@@ -56,7 +56,7 @@ async def _fetch_openai_compatible_models(
     try:
         import httpx
         url = base_url.rstrip("/") + "/models"
-        # 修复 P2 Bug 12: ollama 等本地服务连接失败导致 discover.fetch_failed 告警风暴
+        # 修复 P2 Bug 12: 本地服务连接失败导致 discover.fetch_failed 告警风暴
         # 根因：本地服务未启动时，httpx 仍等待 15s 超时，且每次刷新模型列表都告警
         # 策略：本地 provider（127.0.0.1/localhost）用 3s 短超时；连接拒绝降级 debug
         # P1-8: 改用 httpx.Timeout 分别配置 connect（短）和 read（长，本地服务响应慢）超时
@@ -146,7 +146,6 @@ async def _determine_free(provider_id: str, model_id: str, item: dict) -> bool:
 
     - OpenRouter: API 返回 pricing 字段，prompt==0 && completion==0 为免费
     - SiliconFlow: 抓取官网定价页面，inputPrice==0 && outputPrice==0 为免费
-    - Ollama: 本地部署，永远免费
     - Agnes: 免费平台
     - ModelScope: 推理 API 有免费额度
     - 其他 provider: 默认付费
@@ -168,10 +167,6 @@ async def _determine_free(provider_id: str, model_id: str, item: dict) -> bool:
             return prices.get("input", 1) == 0 and prices.get("output", 1) == 0
         # 定价数据获取失败时，无法确认 → 付费
         return False
-
-    # Ollama 本地部署，永远免费
-    if provider_id == "ollama":
-        return True
 
     # Agnes 免费平台
     if provider_id == "agnes":

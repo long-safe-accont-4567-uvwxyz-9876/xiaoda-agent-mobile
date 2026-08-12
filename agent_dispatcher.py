@@ -133,6 +133,9 @@ class SubAgentConfig:
     memory_scope: str | None = None        # 记忆作用域: "shared"/"isolated"
     background: bool = False               # 是否后台运行
     wallpaper: str = ""                    # 聊天背景板 URL（/assets/... 或上传后的 /media/...）
+    wallpaper_focus: tuple[float, float] = (0.5, 0.35)  # 焦点 (x, y) ∈ [0,1]，映射 background-position
+    wallpaper_overlay: float = 0.28        # 背景遮罩强度 ∈ [0,1]（0=无遮罩，1=全遮罩）
+    wallpaper_motion: str = "full"         # 动效档位: "full" / "reduced"（兼容旧配置缺省为 full）
     sticker_dir: str = ""                  # 表情包目录路径（为空则自动推导）
     allowed_paths: list[str] = field(default_factory=list)    # 允许修改的路径白名单（glob 模式）
     forbidden_paths: list[str] = field(default_factory=list)  # 禁止修改的路径黑名单

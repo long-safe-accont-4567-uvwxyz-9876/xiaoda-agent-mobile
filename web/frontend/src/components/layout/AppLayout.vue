@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import SideBar from './SideBar.vue'
+import DesktopShell from './DesktopShell.vue'
+import MobileAppShell from './MobileAppShell.vue'
 import TopBar from './TopBar.vue'
 import AgentBackdrop from './AgentBackdrop.vue'
+import { useResponsiveShell } from '../../composables/useResponsiveShell'
 import { useAuthStore } from '../../stores/auth'
 import { useAgentsStore } from '../../stores/agents'
 import { useUiStore } from '../../stores/ui'
@@ -13,8 +15,12 @@ const auth = useAuthStore()
 const agentsStore = useAgentsStore()
 const ui = useUiStore()
 const router = useRouter()
+const { useMobileShell } = useResponsiveShell()
 const sidebarExpanded = ref(false)
+const drawerOpen = ref(false)
 
+// 业务初始化（WS / Agent / UI）只在此执行一次；
+// 断点切换仅切换布局壳，不重建 Chat、WS 或终端。
 if (!auth.isLoggedIn) {
   router.replace('/login')
 } else {
@@ -30,10 +36,11 @@ if (!auth.isLoggedIn) {
 </script>
 
 <template>
-  <div class="app-layout">
+  <div class="app-layout" :class="{ 'use-mobile-shell': useMobileShell }">
     <AgentBackdrop />
-    <SideBar :expanded="sidebarExpanded" @update:expanded="sidebarExpanded = $event" />
-    <div class="main-area">
+    <DesktopShell v-if="!useMobileShell" :expanded="sidebarExpanded" @update:expanded="sidebarExpanded = $event" />
+    <MobileAppShell v-else v-model:drawer-open="drawerOpen" />
+    <div class="content-area">
       <TopBar />
       <main class="content">
         <router-view v-slot="{ Component }">
@@ -57,7 +64,7 @@ if (!auth.isLoggedIn) {
   position: relative;
 }
 
-.main-area {
+.content-area {
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -76,8 +83,9 @@ if (!auth.isLoggedIn) {
   contain: layout paint;
 }
 
-@media (max-width: 768px) {
-  .content { padding: 8px; }
+/* 移动壳：底栏高度 + 安全区，保证内容不被 dock 遮挡 */
+.app-layout.use-mobile-shell .content {
+  padding: 8px 8px calc(var(--bottom-nav-height, 64px) + env(safe-area-inset-bottom) + 8px);
 }
 </style>
 

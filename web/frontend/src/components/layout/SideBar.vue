@@ -2,28 +2,17 @@
 import SumeruIcon from '../fx/SumeruIcon.vue'
 import DendroEmblem from '../fx/DendroEmblem.vue'
 import { t, tf, state as i18nState } from '../../i18n'
+import { capabilityGroups, capabilitiesByGroup } from '../../navigation/capabilities'
 
 defineProps<{ expanded: boolean }>()
 const emit = defineEmits<{ 'update:expanded': [value: boolean] }>()
 
-const navItems = [
-  { icon: 'chat', labelKey: 'nav.chat', route: '/' },
-  { icon: 'agents', labelKey: 'nav.agents', route: '/settings/agents' },
-  { icon: 'models', labelKey: 'nav.models', route: '/settings/models' },
-  { icon: 'tools', labelKey: 'nav.tools', route: '/settings/tools' },
-  { icon: 'mcp', labelKey: 'nav.mcp', route: '/settings/mcp' },
-  { icon: 'flow', labelKey: 'nav.workflows', route: '/workflows' },
-  { icon: 'plugins', labelKey: 'nav.plugins', route: '/settings/plugins' },
-  { icon: 'insight', labelKey: 'nav.insight', route: '/insight' },
-  { icon: 'schedule', labelKey: 'nav.schedule', route: '/schedule' },
-  { icon: 'mail', labelKey: 'nav.mail', route: '/settings/mail' },
-  { icon: 'media', labelKey: 'nav.media', route: '/media' },
-  { icon: 'health', labelKey: 'nav.health', route: '/health' },
-  { icon: 'dashboard', labelKey: 'nav.dashboard', route: '/dashboard' },
-  { icon: 'chip', labelKey: 'nav.localDeploy', route: '/local-deploy' },
-  { icon: 'settings', labelKey: 'nav.settings', route: '/settings/system' },
-  { icon: 'alert', labelKey: 'nav.disclaimer', route: '/disclaimer' },
-]
+// 侧栏导航从能力事实源生成；赞助入口仍独立展示在页脚
+const navByGroup = capabilitiesByGroup
+const navGroups = capabilityGroups.map((g) => ({
+  ...g,
+  items: navByGroup(g.id).filter((c) => c.id !== 'sponsor'),
+}))
 </script>
 
 <template>
@@ -37,17 +26,20 @@ const navItems = [
       </div>
 
       <div class="nav-items">
-        <router-link
-          v-for="item in navItems"
-          :key="item.route"
-          :to="item.route"
-          class="nav-item"
-          :title="t(item.labelKey)"
-        >
-          <span class="nav-icon"><SumeruIcon :name="item.icon" :size="20" /></span>
-          <span v-if="expanded" class="nav-label">{{ t(item.labelKey) }}</span>
-          <span class="nav-glow"></span>
-        </router-link>
+        <template v-for="group in navGroups" :key="group.id">
+          <div v-if="expanded && group.items.length" class="nav-group-label">{{ t(group.labelKey) }}</div>
+          <router-link
+            v-for="item in group.items"
+            :key="item.route"
+            :to="item.route"
+            class="nav-item"
+            :title="t(item.labelKey)"
+          >
+            <span class="nav-icon"><SumeruIcon :name="item.icon" :size="20" /></span>
+            <span v-if="expanded" class="nav-label">{{ t(item.labelKey) }}</span>
+            <span class="nav-glow"></span>
+          </router-link>
+        </template>
       </div>
 
       <div class="sidebar-foot" v-if="expanded">
@@ -182,6 +174,16 @@ const navItems = [
 }
 
 .nav-label { font-size: 14px; }
+
+.nav-group-label {
+  padding: 10px 12px 4px;
+  font-size: 10px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: rgba(232, 213, 163, 0.4);
+  font-family: 'Noto Serif SC', serif;
+  white-space: nowrap;
+}
 
 .sidebar-foot {
   margin-top: auto;

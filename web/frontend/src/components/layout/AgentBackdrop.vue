@@ -16,6 +16,24 @@ const targetUrl = computed(() => {
   return agentsStore.mainWallpaper || DEFAULT_BG
 })
 
+// G4-03/04：当前 Agent 的壁纸元数据（焦点/遮罩/动效），缺省向后兼容
+const wallpaperMeta = computed(() => {
+  const a = agentsStore.agents.find(x => x.name === chat.currentAgent)
+  return {
+    focus: a?.wallpaper_focus ?? [0.5, 0.35] as [number, number],
+    overlay: a?.wallpaper_overlay ?? 0.28,
+    motion: a?.wallpaper_motion ?? 'full',
+  }
+})
+const bgPosition = computed(() => {
+  const [x, y] = wallpaperMeta.value.focus
+  return `${Math.round(x * 100)}% ${Math.round(y * 100)}%`
+})
+// 遮罩强度 = 用户 overlay，夹在 [0.15, 0.75]，保证文字可读
+const tintOpacity = computed(() =>
+  Math.min(0.75, Math.max(0.15, wallpaperMeta.value.overlay)),
+)
+
 interface Layer { url: string; key: number }
 const layers = ref<Layer[]>([])
 let seq = 0
@@ -69,16 +87,16 @@ function pushLayer(url: string) {
 </script>
 
 <template>
-  <div class="agent-backdrop" aria-hidden="true">
+  <div class="agent-backdrop" :class="{ 'motion-reduced': wallpaperMeta.motion === 'reduced' }" aria-hidden="true">
     <transition-group name="bg-fade">
       <div
         v-for="l in layers"
         :key="l.key"
         class="backdrop-layer"
-        :style="{ backgroundImage: `url('${l.url}')` }"
+        :style="{ backgroundImage: `url('${l.url}')`, backgroundPosition: bgPosition }"
       />
     </transition-group>
-    <div class="backdrop-tint"></div>
+    <div class="backdrop-tint" :style="{ opacity: tintOpacity }"></div>
   </div>
 </template>
 
@@ -121,4 +139,8 @@ function pushLayer(url: string) {
 @media (prefers-reduced-motion: reduce) {
   .bg-fade-enter-from { transform: none; }
 }
+
+/* G4-04：Agent 显式请求 reduced 动效时，壁纸切换不做缩放/位移 */
+.agent-backdrop.motion-reduced .bg-fade-enter-from { transform: none; }
+.agent-backdrop.motion-reduced .bg-fade-enter-active { transition: opacity 0.6s ease; }
 </style>

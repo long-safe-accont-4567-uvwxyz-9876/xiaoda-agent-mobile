@@ -213,53 +213,45 @@ jobs:
           fi
           echo "Pillow C extension verified OK"
 
-      - name: Verify onnxruntime & tokenizers bundled (local embed)
+      - name: Verify no local AI/ONNX artifacts bundled (retired)
         shell: bash
         run: |
-          # 本地向量模型（bge-small-zh-v1.5）是安装包核心功能，onnxruntime DLL/SO、
-          # tokenizers Rust 扩展、模型文件三者缺一不可；缺失时本地 embed 会静默
-          # 降级远程 API，用户无法察觉。此步骤做强制打包验证。
-          echo "=== Checking onnxruntime native library bundled ==="
+          # G1 已退役本地向量模型与 ONNX/tokenizers。以下产物不应再出现在安装包内：
+          # ONNX runtime 原生库、tokenizers 扩展、BGE 模型目录。
+          echo "=== Checking ONNX runtime native library is absent ==="
           if [ "$RUNNER_OS" = "Windows" ]; then
             ORT=$(find dist/xiaoda-agent -name "onnxruntime*.dll" -print -quit)
           else
             ORT=$(find dist/xiaoda-agent -name "libonnxruntime*.so*" -print -quit)
           fi
-          if [ -z "$ORT" ]; then
-            echo "FATAL: onnxruntime native library NOT bundled! Local embed silently falls back to remote API."
-            find dist/xiaoda-agent -iname "*onnxruntime*" 2>/dev/null | head -20 || true
+          if [ -n "$ORT" ]; then
+            echo "FATAL: onnxruntime native library still bundled after G1 retirement!"
+            ls -lh "$ORT"
             exit 1
           fi
-          echo "OK: onnxruntime native library found:"
-          ls -lh "$ORT"
+          echo "OK: onnxruntime absent"
 
           echo ""
-          echo "=== Checking tokenizers Rust extension bundled ==="
+          echo "=== Checking tokenizers Rust extension is absent ==="
           TOK=$(find dist/xiaoda-agent \( -name "tokenizers*.pyd" -o -name "tokenizers*.so" \) 2>/dev/null | head -3)
-          if [ -z "$TOK" ]; then
-            echo "FATAL: tokenizers Rust extension NOT bundled!"
-            find dist/xiaoda-agent -iname "*tokenizers*" 2>/dev/null | head -20 || true
+          if [ -n "$TOK" ]; then
+            echo "FATAL: tokenizers extension still bundled after G1 retirement!"
+            echo "$TOK"
             exit 1
           fi
-          echo "OK: tokenizers Rust extension found:"
-          echo "$TOK" | while read -r f; do ls -lh "$f"; done
+          echo "OK: tokenizers absent"
 
           echo ""
-          echo "=== Checking local BGE model bundled ==="
-          MODEL=$(find dist/xiaoda-agent -path "*models/bge-small-zh-v1.5/onnx/model.onnx" -print -quit)
-          if [ -z "$MODEL" ]; then
-            echo "FATAL: bundled BGE model (onnx/model.onnx) NOT found!"
+          echo "=== Checking local BGE model is absent ==="
+          MODEL=$(find dist/xiaoda-agent -path "*models/bge-small-zh-v1.5*" -print -quit)
+          if [ -n "$MODEL" ]; then
+            echo "FATAL: bundled BGE model directory still present after G1 retirement!"
+            ls -lh "$MODEL"
             exit 1
           fi
-          TOKJSON=$(find dist/xiaoda-agent -path "*models/bge-small-zh-v1.5/tokenizer.json" -print -quit)
-          if [ -z "$TOKJSON" ]; then
-            echo "FATAL: bundled BGE tokenizer.json NOT found!"
-            exit 1
-          fi
-          echo "OK: BGE model bundled:"
-          ls -lh "$MODEL" "$TOKJSON"
+          echo "OK: BGE model absent"
           echo ""
-          echo "Local embed bundle verified OK"
+          echo "Local AI artifacts verified retired OK"
 
       - name: Verify CLI modules bundled (interactive slash commands)
         shell: bash
@@ -551,6 +543,40 @@ jobs:
             xiaoda-agent-windows-x64-*.tar.gz
             xiaoda-agent-linux-x86_64-*.tar.gz
             xiaoda-agent-linux-x86_64-*-install.sh
+          if-no-files-found: error
+
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install frontend deps (needed by gradle buildWebUi task)
+        working-directory: web/frontend
+        run: npm install
+
+      - name: Build Android APK (debug)
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:assembleDebug --no-daemon --stacktrace
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: xiaoda-agent-android-debug
+          path: android/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
 
   docker:

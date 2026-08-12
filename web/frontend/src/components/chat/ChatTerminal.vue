@@ -2,6 +2,7 @@
 import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { useChatStore } from '../../stores/chat'
 import { useAgentsStore } from '../../stores/agents'
+import { useResponsiveShell } from '../../composables/useResponsiveShell'
 import { getWsClient } from '../../api/ws'
 import { get } from '../../api'
 import type { WsEvent } from '../../api/ws'
@@ -15,10 +16,27 @@ import '@xterm/xterm/css/xterm.css'
 const chat = useChatStore()
 const agentsStore = useAgentsStore()
 const ws = getWsClient()
+const { isMobile } = useResponsiveShell()
 
 const panelOpen = ref(false)
 const showNewDialog = ref(false)
 const newShellType = ref('bash')
+
+// ── 移动端底部 Sheet：两档高度 + 软键盘适配（G4-02） ──
+const sheetExpand = ref(false)          // false=紧凑 55%，true=展开 92%
+const visualViewport = ref<number>()    // 软键盘弹出时可视区高度
+function onVVResize() {
+  visualViewport.value = window.visualViewport?.height
+}
+const sheetHeight = computed(() => {
+  if (!isMobile.value) return '100%'
+  // 软键盘弹出时以可视区为基准，避免键盘遮挡输入
+  const base = visualViewport.value && visualViewport.value < window.innerHeight
+    ? visualViewport.value
+    : window.innerHeight
+  const pct = sheetExpand.value ? 0.92 : 0.55
+  return `${Math.round(base * pct)}px`
+})
 
 // ── OS 检测（优先服务端 API，fallback 到客户端 navigator） ──
 function _detectClientOs(): string {
@@ -163,12 +181,14 @@ onMounted(() => {
   ws.on('terminal_output', onTerminalOutput)
   ws.on('terminal_exit', onTerminalExit)
   document.addEventListener('keydown', _onDocKeyDown)
+  window.visualViewport?.addEventListener('resize', onVVResize)
 })
 
 onBeforeUnmount(() => {
   ws.off('terminal_output', onTerminalOutput)
   ws.off('terminal_exit', onTerminalExit)
   document.removeEventListener('keydown', _onDocKeyDown)
+  window.visualViewport?.removeEventListener('resize', onVVResize)
   for (const s of sessions.value) {
     s.resizeObserver?.disconnect()
     s.terminal.dispose()
@@ -346,9 +366,14 @@ function onPanelOpened() {
       </div>
     </transition>
 
-    <!-- 右侧滑出面板（v-show 保持 DOM 存活，关闭后重新打开内容不丢失） -->
+    <!-- 面板：桌面右侧滑出 / 移动底部 Sheet（v-show 保持 DOM 存活，会话不因 UI 重建丢失） -->
     <transition name="panel-slide" @after-enter="onPanelOpened">
-      <div v-show="panelOpen" class="term-panel">
+      <div v-show="panelOpen" class="term-panel" :class="{ 'is-mobile-sheet': isMobile }" :style="isMobile ? { height: sheetHeight } : {}">
+        <!-- 移动端拖拽手柄（点按切换紧凑/展开两档） -->
+        <button v-if="isMobile" class="sheet-grab" :aria-label="sheetExpand ? t('chatTerminal.collapse') : t('chatTerminal.expand')" @click="sheetExpand = !sheetExpand">
+          <span class="grab-bar"></span>
+        </button>
+
         <!-- 标题栏 -->
         <div class="panel-header">
           <span class="header-title">
@@ -725,4 +750,61 @@ function onPanelOpened() {
 .empty-btn:hover { background: rgba(127, 214, 80, 0.15); border-color: var(--dendro, #7fd650); }
 
 @media (max-width: 600px) { .term-panel { width: 100vw; } }
+
+/* ── 移动端底部 Sheet（G4-02）· <768px ── */
+@media (max-width: 767px) {
+  /* FAB 避开底部导航与手势区 */
+  .term-fab {
+    right: 16px;
+    bottom: calc(var(--bottom-nav-height, 64px) + env(safe-area-inset-bottom) + 16px);
+    width: 48px;
+    height: 48px;
+    z-index: var(--z-mobile-fab, 55);
+  }
+
+  /* 右侧面板 → 底部 Sheet */
+  .term-panel.is-mobile-sheet {
+    top: auto;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100vw;
+    max-width: none;
+    height: 55%; /* 默认紧凑档，脚本按 visualViewport 覆盖 */
+    border-left: none;
+    border-top: 1px solid rgba(127, 214, 80, 0.2);
+    border-radius: 18px 18px 0 0;
+    box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.5);
+    overflow: hidden;
+  }
+  .term-panel.is-mobile-sheet .panel-slide-enter-from,
+  .term-panel.is-mobile-sheet .panel-slide-leave-to { transform: translateY(100%); }
+  .term-panel.is-mobile-sheet .panel-slide-enter-active,
+  .term-panel.is-mobile-sheet .panel-slide-leave-active {
+    transition: transform 0.38s cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  /* 拖拽手柄：视觉提示 + 点按切换两档 */
+  .sheet-grab {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px 0 4px;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    flex-shrink: 0;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .grab-bar {
+    width: 40px;
+    height: 4px;
+    border-radius: 2px;
+    background: rgba(242, 247, 238, 0.25);
+  }
+  .sheet-grab:active .grab-bar { background: var(--dendro, #7fd650); }
+
+  /* 终端 fontSize 略降，适配窄屏可读性 */
+  .term-viewport :deep(.xterm) { --xterm-font-size: 13px; }
+}
 </style>

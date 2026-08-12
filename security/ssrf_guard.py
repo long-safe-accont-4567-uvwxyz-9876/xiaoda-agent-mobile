@@ -285,7 +285,7 @@ def is_safe(url: str) -> bool:
         return False
 
 
-# 本地/容器内受信服务主机名（如 Ollama http://localhost:11434）。
+# 本地/容器内受信服务主机名（用户显式配置的本地服务）。
 # 这类主机名在 _BLOCKED_HOSTNAMES / _BLOCKED_NETWORKS 中会被拒，
 # 但对用户显式配置的本地服务是合法目标，需放行。
 _LOCAL_HOSTS = {
@@ -304,8 +304,8 @@ _LOCAL_HOSTS = {
 def is_local_host(url: str) -> bool:
     """判断 URL 主机名是否为本地/回环地址。
 
-    用于放行用户显式配置的本地服务（如 Ollama），跳过 SSRF 的 IP/主机名检查，
-    但仍需满足 http/https 协议白名单。与 setup._test_ollama 的本地豁免保持一致。
+    用于放行用户显式配置的本地服务，跳过 SSRF 的 IP/主机名检查，
+    但仍需满足 http/https 协议白名单。
     """
     try:
         host = (urllib.parse.urlparse(url).hostname or "").lower().rstrip(".")

@@ -15,6 +15,9 @@ export interface AgentInfo {
   tool_count: number
   mcp_servers: string[]
   wallpaper?: string
+  wallpaper_focus?: [number, number]
+  wallpaper_overlay?: number
+  wallpaper_motion?: 'full' | 'reduced'
   [key: string]: any
 }
 

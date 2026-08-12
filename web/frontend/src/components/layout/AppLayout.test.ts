@@ -2,7 +2,7 @@ import { mount } from '@vue/test-utils'
 import { createPinia } from 'pinia'
 import { defineComponent, nextTick, onActivated, onDeactivated, onUnmounted } from 'vue'
 import { createMemoryHistory, createRouter } from 'vue-router'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import AppLayout from './AppLayout.vue'
 
 vi.mock('../../api/ws', () => ({
@@ -12,6 +12,25 @@ vi.mock('../../api/ws', () => ({
 vi.mock('./SideBar.vue', () => ({ default: { template: '<nav />' } }))
 vi.mock('./TopBar.vue', () => ({ default: { template: '<header />' } }))
 vi.mock('./AgentBackdrop.vue', () => ({ default: { template: '<div />' } }))
+vi.mock('./DesktopShell.vue', () => ({ default: { template: '<div data-desktop-shell />' } }))
+vi.mock('./MobileAppShell.vue', () => ({ default: { template: '<div data-mobile-shell />' } }))
+
+// jsdom 未实现 matchMedia，为 useResponsiveShell 提供最小 stub
+beforeAll(() => {
+  Object.defineProperty(window, 'matchMedia', {
+    writable: true,
+    value: (query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }),
+  })
+})
 
 describe('AppLayout 路由缓存', () => {
   beforeEach(() => {

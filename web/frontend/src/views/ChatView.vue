@@ -252,7 +252,7 @@ function resend(msg: { content: string; imageUrl?: string }) {
   let text = msg.content
   const imageUrl = msg.imageUrl
   if (imageUrl) text += `\n[Image: ${imageUrl}]`
-  chat.sendMessage(text, imageUrl)
+  chat.sendMessage(text, imageUrl ? { imageUrl } : undefined)
 }
 
 function clearAll() {

@@ -213,3 +213,42 @@ body.low-gpu .term-fab {
     animation: none;
   }
 }
+
+/* ===== 移动端响应式层（G4-01）· 仅 < 768px 生效，桌面布局不受影响 ===== */
+@media (max-width: 767px) {
+  /* 预防不可见横向溢出：任何过宽内容都收敛到视口内 */
+  html, body { overflow-x: hidden; }
+  body { -webkit-tap-highlight-color: transparent; }
+
+  /* 消除 flex 子项固定 min-width 导致的横向滚动（Dashboard/Insight/Media 图表与面板）
+     这些容器父级多已 flex-wrap，min-width 归零后自然单列堆叠 */
+  .chart-box,
+  .kg-section,
+  .panel.main,
+  .panel.side,
+  .mem-panel {
+    min-width: 0 !important;
+  }
+
+  /* 触控热区：操作按钮与可点元素最小 44px，避免误触 */
+  .dendro-btn { min-height: 44px; }
+  .view-actions button,
+  .card-actions button { min-height: 44px; }
+
+  /* 表格横向滚动：宽表在窄屏以块级横向滚动呈现，不挤压页面 */
+  .table-wrap,
+  .route-table,
+  .n-data-table {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* 内容区留白收窄，配合《use-mobile-shell》底栏高度 */
+  .content { padding: 12px; }
+}
+
+/* 弱 GPU 设备（含核显）降级：blur 档位变化不影响布局 */
+@media (max-width: 767px) and (prefers-reduced-motion: reduce) {
+  .aurora-veil::before,
+  .shimmer-band::after { animation: none; }
+}

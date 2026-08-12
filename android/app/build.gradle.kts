@@ -1,0 +1,167 @@
+plugins {
+    alias(libs.plugins.android.application)
+    alias(libs.plugins.kotlin.android)
+}
+
+import java.security.MessageDigest
+
+val repositoryRoot = rootProject.projectDir.parentFile
+val webFrontendDir = repositoryRoot.resolve("web/frontend")
+val projectMetadataFile = repositoryRoot.resolve("pyproject.toml")
+val mobileContractFile = repositoryRoot.resolve("config/mobile_contract.json")
+require(mobileContractFile.exists()) {
+    "config/mobile_contract.json not found. This file contains mobile build configuration (upload_max_bytes, session cookie settings)."
+}
+val mobileContract = groovy.json.JsonSlurper().parse(mobileContractFile) as Map<*, *>
+val uploadMaxBytes = (mobileContract["upload_max_bytes"] as Number).toLong()
+val sessionCookie = mobileContract["webview_session_cookie"] as Map<*, *>
+val sessionCookieName = sessionCookie["name"].toString()
+val sessionCookieMaxAgeSeconds = (sessionCookie["max_age_seconds"] as Number).toInt()
+val sessionCookieSameSite = sessionCookie["same_site"].toString().replaceFirstChar { it.uppercase() }
+val webDistDir = layout.buildDirectory.dir("intermediates/webDist")
+val generatedWebAssets = layout.buildDirectory.dir("generated/webAssets")
+val webAssetVersion = Regex("""(?m)^version\s*=\s*"([^"]+)"\s*$""")
+    .find(projectMetadataFile.readText())
+    ?.groupValues
+    ?.get(1)
+    ?: error("Unable to read project version from ${projectMetadataFile.absolutePath}")
+val webBuildInputs = objects.fileCollection()
+webBuildInputs.from(webFrontendDir.resolve("src"))
+webBuildInputs.from(webFrontendDir.resolve("public"))
+webBuildInputs.from(webFrontendDir.resolve("package.json"))
+webBuildInputs.from(webFrontendDir.resolve("package-lock.json"))
+webBuildInputs.from(webFrontendDir.resolve("vite.config.ts"))
+webBuildInputs.from(webFrontendDir.resolve("tsconfig.json"))
+webBuildInputs.from(webFrontendDir.resolve("tsconfig.app.json"))
+webBuildInputs.from(webFrontendDir.resolve("index.html"))
+webBuildInputs.from(projectMetadataFile)
+webBuildInputs.from(mobileContractFile)
+
+val prepareWebAssets by tasks.registering {
+    dependsOn(buildWebUi)
+    inputs.dir(webDistDir)
+    inputs.property("webAssetVersion", webAssetVersion)
+    outputs.dir(generatedWebAssets)
+    doLast {
+        val output = generatedWebAssets.get().asFile
+        output.deleteRecursively()
+        webDistDir.get().asFile.copyRecursively(output, overwrite = true)
+        val files = output.walkTopDown().filter { it.isFile && it.name != "asset-manifest.json" }.sortedBy { it.relativeTo(output).invariantSeparatorsPath }
+        val entries = files.map { file ->
+            val digest = MessageDigest.getInstance("SHA-256").digest(file.readBytes()).joinToString("") { "%02x".format(it) }
+            "\"${file.relativeTo(output).invariantSeparatorsPath}\":\"$digest\""
+        }
+        output.resolve("asset-manifest.json").writeText("{\"appVersion\":\"$webAssetVersion\",\"files\":{${entries.joinToString(",")}}}")
+    }
+}
+
+val verifyGeneratedWebAssets by tasks.registering {
+    dependsOn(prepareWebAssets)
+    inputs.dir(generatedWebAssets)
+    inputs.property("webAssetVersion", webAssetVersion)
+    doLast {
+        val output = generatedWebAssets.get().asFile
+        val manifest = groovy.json.JsonSlurper().parse(output.resolve("asset-manifest.json")) as Map<*, *>
+        require(manifest["appVersion"] == webAssetVersion)
+        val expected = manifest["files"] as Map<*, *>
+        val actual = output.walkTopDown().filter { it.isFile && it.name != "asset-manifest.json" }.associate { file ->
+            val path = file.relativeTo(output).invariantSeparatorsPath
+            val digest = MessageDigest.getInstance("SHA-256").digest(file.readBytes()).joinToString("") { "%02x".format(it) }
+            path to digest
+        }
+        require(expected == actual) {
+            "Asset digest mismatch! Some files were modified after generation. Expected: ${expected.size} files, Actual: ${actual.size} files"
+        }
+    }
+}
+
+val buildWebUi by tasks.registering(Exec::class) {
+    workingDir(webFrontendDir)
+    val output = webDistDir.get().asFile
+    environment("VITE_XIAODA_MOBILE_BUILD", "1")
+    commandLine(if (System.getProperty("os.name").startsWith("Windows")) "npm.cmd" else "npm", "exec", "vite", "--", "build", "--outDir", output.absolutePath, "--emptyOutDir")
+    inputs.files(webBuildInputs)
+    inputs.property("mobileWebBuild", true)
+    outputs.dir(output)
+}
+
+android {
+    namespace = "com.xiaoda.agent"
+    compileSdk = libs.versions.compileSdk.get().toInt()
+
+    defaultConfig {
+        applicationId = "com.xiaoda.agent"
+        minSdk = libs.versions.minSdk.get().toInt()
+        targetSdk = libs.versions.targetSdk.get().toInt()
+        versionCode = 1
+        versionName = webAssetVersion
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        ndk {
+            abiFilters += listOf("arm64-v8a", "x86_64")
+        }
+        buildConfigField("String", "WEB_ASSET_VERSION", "\"$webAssetVersion\"")
+        buildConfigField("long", "UPLOAD_MAX_BYTES", "${uploadMaxBytes}L")
+        buildConfigField("String", "SESSION_COOKIE_NAME", "\"$sessionCookieName\"")
+        buildConfigField("int", "SESSION_COOKIE_MAX_AGE_SECONDS", sessionCookieMaxAgeSeconds.toString())
+        buildConfigField("String", "SESSION_COOKIE_SAME_SITE", "\"$sessionCookieSameSite\"")
+    }
+
+    buildTypes {
+        debug {
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-debug"
+            buildConfigField("boolean", "WEBVIEW_DEBUGGING", "true")
+        }
+        create("staging") {
+            initWith(getByName("release"))
+            applicationIdSuffix = ".staging"
+            versionNameSuffix = "-staging"
+            signingConfig = signingConfigs.getByName("debug")
+            matchingFallbacks += listOf("release")
+            buildConfigField("boolean", "WEBVIEW_DEBUGGING", "false")
+        }
+        release {
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            signingConfig = signingConfigs.getByName("debug")
+            buildConfigField("boolean", "WEBVIEW_DEBUGGING", "false")
+        }
+    }
+
+    buildFeatures {
+        buildConfig = true
+    }
+
+    sourceSets.getByName("main").assets.srcDir(generatedWebAssets)
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+}
+
+tasks.named("preBuild").configure {
+    dependsOn(verifyGeneratedWebAssets)
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+    }
+}
+
+dependencies {
+    implementation(project(":core:webcontainer"))
+    implementation(project(":core:security"))
+    implementation(project(":core:bridge-api"))
+    implementation(project(":feature:terminal-runtime"))
+    implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.appcompat)
+    implementation(libs.androidx.webkit)
+    implementation(libs.json.jvm)
+    testImplementation(libs.junit)
+    androidTestImplementation(libs.androidx.test.ext.junit)
+    androidTestImplementation(libs.androidx.test.core)
+    androidTestImplementation(libs.androidx.test.runner)
+}
