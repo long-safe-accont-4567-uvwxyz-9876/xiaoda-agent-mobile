@@ -122,7 +122,7 @@ val stagePythonRuntime by tasks.registering(Sync::class) {
 }
 // Ensure the staged Python tree is ready before any Chaquopy/Android packaging step.
 tasks.configureEach {
-    if (name.contains("Python", ignoreCase = true) || name == "preBuild") {
+    if (name != "stagePythonRuntime" && (name.contains("Python", ignoreCase = true) || name == "preBuild")) {
         dependsOn(stagePythonRuntime)
     }
 }
