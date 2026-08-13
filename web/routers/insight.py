@@ -215,7 +215,8 @@ async def list_memories(request: Request,
     core = request.app.state.core
     if q.strip() and core.memory:
         try:
-            results = await core.memory.retrieve_memories(q.strip(), k=limit)
+            results = await core.memory.retrieve_memories(
+                q.strip(), k=limit, apply_min_score=False)
             return Envelope(data=[
                 {"id": r.get("id"), "summary": r.get("summary", ""),
                  "importance": r.get("importance", 0.5),

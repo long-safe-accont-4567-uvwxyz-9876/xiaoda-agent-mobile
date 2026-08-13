@@ -855,6 +855,13 @@ class MainActivityLocalBackendTest {
         assertTrue(state is LocalBackendRuntime.State.Ready)
         val token = loginToken()
 
+        // AndroidBrowserAutomation.initialize() 只在 MainActivity.onCreate 被调用，
+        // 若不启动 Activity，webViewRef 为空，browser_automation 工具会报
+        // "Browser WebView is not initialized"。显式启动 MainActivity 以初始化 WebView，
+        // 并在整个测试期间保持存活（LocalBackendRuntime.start 是单例，重复调用无副作用）。
+        val scenario = ActivityScenario.launch<MainActivity>(Intent(context, MainActivity::class.java))
+        try {
+
         val opened = requestJson(
             "POST",
             "${LocalBackendRuntime.endpoint}/api/v1/tools/browser_automation/invoke",
@@ -902,6 +909,9 @@ class MainActivityLocalBackendTest {
             token,
         ).getJSONObject("data")
         assertFalse("Browser automation allowed a metadata/SSRF target", blocked.getBoolean("success"))
+        } finally {
+            scenario.close()
+        }
     }
 
     private fun awaitBackend(): LocalBackendRuntime.State {
