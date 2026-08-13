@@ -312,7 +312,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun sessionCookie(handle: String, maxAgeSeconds: Int): String =
-        "${BuildConfig.SESSION_COOKIE_NAME}=$handle; Max-Age=$maxAgeSeconds; Path=/; HttpOnly; SameSite=Lax"
+        "${BuildConfig.SESSION_COOKIE_NAME}=$handle; Max-Age=$maxAgeSeconds; Path=/; HttpOnly; SameSite=${BuildConfig.SESSION_COOKIE_SAME_SITE}"
 
     private fun postJson(path: String, body: JSONObject, token: String?): JSONObject {
         val endpoint = localEndpoint()

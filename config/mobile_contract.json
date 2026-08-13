@@ -3,6 +3,6 @@
   "webview_session_cookie": {
     "name": "xiaoda_session",
     "max_age_seconds": 300,
-    "same_site": "none"
+    "same_site": "lax"
   }
 }

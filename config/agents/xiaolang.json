@@ -8,7 +8,9 @@
   "voice_ref": null,
   "excluded_tools": [
     "call_xiaoda",
-    "call_xiaoli"
+    "call_xiaoli",
+    "call_xiaoke",
+    "call_xiaolian"
   ],
   "base_url": "https://apihub.agnes-ai.cn/v1",
   "api_key_env": "AGNES_API_KEY",

@@ -9,6 +9,8 @@
   "excluded_tools": [
     "call_xiaoda",
     "call_xiaoli",
+    "call_xiaoke",
+    "call_xiaolang",
     "mcp_git_git_add",
     "mcp_git_git_branch",
     "mcp_git_git_checkout",

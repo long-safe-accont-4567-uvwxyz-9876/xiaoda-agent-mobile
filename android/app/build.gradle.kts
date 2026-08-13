@@ -121,6 +121,16 @@ val stagePythonRuntime by tasks.registering(Sync::class) {
         "tmp/**",
         "nohup.out",
         "*.log",
+        ".github/**",
+        "Dockerfile",
+        "docker-compose*.yml",
+        "*.md",
+        "*.sh",
+        "*.bat",
+        "*.ps1",
+        "_test_out*.txt",
+        "_pip_out.txt",
+        ".env.example",
     )
 }
 // Ensure the staged Python tree is ready before any Chaquopy/Android packaging step.
