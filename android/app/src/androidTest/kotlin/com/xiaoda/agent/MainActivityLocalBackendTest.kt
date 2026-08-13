@@ -865,57 +865,58 @@ class MainActivityLocalBackendTest {
         // "Browser WebView is not initialized"。显式启动 MainActivity 以初始化 WebView，
         // 并在整个测试期间保持存活（LocalBackendRuntime.start 是单例，重复调用无副作用）。
         val scenario = ActivityScenario.launch<MainActivity>(Intent(context, MainActivity::class.java))
-        try {
+        LocalHttpPage().use { page ->
+            try {
+                val opened = requestJson(
+                    "POST",
+                    "${LocalBackendRuntime.endpoint}/api/v1/tools/browser_automation/invoke",
+                    JSONObject().put("args", JSONObject().put("action", "open").put("url", page.url).put("timeout_ms", 60_000)),
+                    token,
+                ).getJSONObject("data")
+                assertTrue("Android WebView failed to open a local page: $opened", opened.getBoolean("success"))
 
-        val opened = requestJson(
-            "POST",
-            "${LocalBackendRuntime.endpoint}/api/v1/tools/browser_automation/invoke",
-            JSONObject().put("args", JSONObject().put("action", "open").put("url", "https://example.com").put("timeout_ms", 60_000)),
-            token,
-        ).getJSONObject("data")
-        assertTrue("Android WebView failed to open a public page: $opened", opened.getBoolean("success"))
+                val read = requestJson(
+                    "POST",
+                    "${LocalBackendRuntime.endpoint}/api/v1/tools/browser_automation/invoke",
+                    JSONObject().put("args", JSONObject().put("action", "read").put("selector", "h1").put("max_chars", 2_000)),
+                    token,
+                ).getJSONObject("data")
+                assertTrue("Android WebView failed to read the page: $read", read.getBoolean("success"))
+                assertTrue(read.getString("data").contains("Example Domain"))
 
-        val read = requestJson(
-            "POST",
-            "${LocalBackendRuntime.endpoint}/api/v1/tools/browser_automation/invoke",
-            JSONObject().put("args", JSONObject().put("action", "read").put("selector", "h1").put("max_chars", 2_000)),
-            token,
-        ).getJSONObject("data")
-        assertTrue("Android WebView failed to read the page: $read", read.getBoolean("success"))
-        assertTrue(read.getString("data").contains("Example Domain"))
+                val evaluated = requestJson(
+                    "POST",
+                    "${LocalBackendRuntime.endpoint}/api/v1/tools/browser_automation/invoke",
+                    JSONObject().put("args", JSONObject().put("action", "evaluate").put("script", "return document.querySelector('h1').textContent + ':native';")),
+                    token,
+                ).getJSONObject("data")
+                assertTrue("Android WebView JavaScript failed: $evaluated", evaluated.getBoolean("success"))
+                assertTrue(evaluated.getString("data").contains("Example Domain:native"))
 
-        val evaluated = requestJson(
-            "POST",
-            "${LocalBackendRuntime.endpoint}/api/v1/tools/browser_automation/invoke",
-            JSONObject().put("args", JSONObject().put("action", "evaluate").put("script", "return document.querySelector('h1').textContent + ':native';")),
-            token,
-        ).getJSONObject("data")
-        assertTrue("Android WebView JavaScript failed: $evaluated", evaluated.getBoolean("success"))
-        assertTrue(evaluated.getString("data").contains("Example Domain:native"))
+                val screenshot = requestJson(
+                    "POST",
+                    "${LocalBackendRuntime.endpoint}/api/v1/tools/browser_automation/invoke",
+                    JSONObject().put("args", JSONObject().put("action", "screenshot").put("name", "android-browser-e2e")),
+                    token,
+                ).getJSONObject("data")
+                assertTrue("Android WebView screenshot failed: $screenshot", screenshot.getBoolean("success"))
+                val screenshotText = screenshot.getString("data")
+                assertTrue(screenshotText.contains("android-browser-e2e.png"))
+                assertTrue(
+                    "Browser screenshot was not persisted in app-private storage",
+                    context.filesDir.resolve("xiaoda/.ai-agent/data/media/browser/android-browser-e2e.png").isFile,
+                )
 
-        val screenshot = requestJson(
-            "POST",
-            "${LocalBackendRuntime.endpoint}/api/v1/tools/browser_automation/invoke",
-            JSONObject().put("args", JSONObject().put("action", "screenshot").put("name", "android-browser-e2e")),
-            token,
-        ).getJSONObject("data")
-        assertTrue("Android WebView screenshot failed: $screenshot", screenshot.getBoolean("success"))
-        val screenshotText = screenshot.getString("data")
-        assertTrue(screenshotText.contains("android-browser-e2e.png"))
-        assertTrue(
-            "Browser screenshot was not persisted in app-private storage",
-            context.filesDir.resolve("xiaoda/.ai-agent/data/media/browser/android-browser-e2e.png").isFile,
-        )
-
-        val blocked = requestJson(
-            "POST",
-            "${LocalBackendRuntime.endpoint}/api/v1/tools/browser_automation/invoke",
-            JSONObject().put("args", JSONObject().put("action", "open").put("url", "http://169.254.169.254/latest/meta-data")),
-            token,
-        ).getJSONObject("data")
-        assertFalse("Browser automation allowed a metadata/SSRF target", blocked.getBoolean("success"))
-        } finally {
-            scenario.close()
+                val blocked = requestJson(
+                    "POST",
+                    "${LocalBackendRuntime.endpoint}/api/v1/tools/browser_automation/invoke",
+                    JSONObject().put("args", JSONObject().put("action", "open").put("url", "http://169.254.169.254/latest/meta-data")),
+                    token,
+                ).getJSONObject("data")
+                assertFalse("Browser automation allowed a metadata/SSRF target", blocked.getBoolean("success"))
+            } finally {
+                scenario.close()
+            }
         }
     }
 
@@ -1006,6 +1007,59 @@ class MainActivityLocalBackendTest {
             JSONObject(payload)
         } finally {
             connection.disconnect()
+        }
+    }
+
+    private class LocalHttpPage : AutoCloseable {
+        // 模拟器内本地 HTTP 页面：替代外网 example.com，避免 CI 上 WebView 渲染外网
+        // 页面慢/不稳定导致 browser_automation 测试超时。debug 构建允许明文 127.0.0.1。
+        private val closed = AtomicBoolean(false)
+        private val server = ServerSocket(0, 16, InetAddress.getByName("127.0.0.1"))
+        val url: String = "http://127.0.0.1:${server.localPort}/"
+        private val worker = Thread({
+            val html = "<html><head><title>Example Domain</title></head>" +
+                "<body><h1>Example Domain</h1><p>This domain is for use in illustrative examples.</p></body></html>"
+            val body = html.toByteArray(Charsets.UTF_8)
+            while (!closed.get()) {
+                val socket = try {
+                    server.accept()
+                } catch (_: Exception) {
+                    break
+                }
+                Thread({
+                    runCatching {
+                        val input = socket.getInputStream()
+                        val headerBytes = java.io.ByteArrayOutputStream()
+                        var matched = 0
+                        val delimiter = byteArrayOf(13, 10, 13, 10)
+                        while (headerBytes.size() < 64 * 1024) {
+                            val next = input.read()
+                            if (next < 0) break
+                            headerBytes.write(next)
+                            matched = if (next.toByte() == delimiter[matched]) matched + 1
+                            else if (next.toByte() == delimiter[0]) 1
+                            else 0
+                            if (matched == delimiter.size) break
+                        }
+                        val response = buildString {
+                            append("HTTP/1.1 200 OK\r\n")
+                            append("Content-Type: text/html; charset=utf-8\r\n")
+                            append("Content-Length: ${body.size}\r\n")
+                            append("Connection: close\r\n\r\n")
+                        }.toByteArray(Charsets.ISO_8859_1)
+                        socket.getOutputStream().use { output ->
+                            output.write(response)
+                            output.write(body)
+                        }
+                    }
+                    runCatching { socket.close() }
+                }, "xiaoda-local-http").apply { isDaemon = true; start() }
+            }
+        }, "xiaoda-local-http-server").apply { isDaemon = true; start() }
+
+        override fun close() {
+            closed.set(true)
+            runCatching { server.close() }
         }
     }
 
