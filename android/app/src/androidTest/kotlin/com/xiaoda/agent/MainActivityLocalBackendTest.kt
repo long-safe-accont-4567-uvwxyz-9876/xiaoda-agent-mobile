@@ -867,6 +867,10 @@ class MainActivityLocalBackendTest {
         val scenario = ActivityScenario.launch<MainActivity>(Intent(context, MainActivity::class.java))
         LocalHttpPage().use { page ->
             try {
+                // 模拟器本地页面替代外网 example.com：无 GPU 模拟器上 WebView 渲染外网页面
+                // 慢/不稳定，曾导致该测试超时 300s。调试构建允许移动端回环地址（见
+                // AndroidBrowserAutomation.isAllowedUrl），沙箱对 browser_automation 的 URL
+                // 校验由移动端桥自行负责（见 xiaoda_mobile_runtime 对 _NETWORK_TOOLS 的排除）。
                 val opened = requestJson(
                     "POST",
                     "${LocalBackendRuntime.endpoint}/api/v1/tools/browser_automation/invoke",
@@ -875,45 +879,45 @@ class MainActivityLocalBackendTest {
                 ).getJSONObject("data")
                 assertTrue("Android WebView failed to open a local page: $opened", opened.getBoolean("success"))
 
-                val read = requestJson(
-                    "POST",
-                    "${LocalBackendRuntime.endpoint}/api/v1/tools/browser_automation/invoke",
-                    JSONObject().put("args", JSONObject().put("action", "read").put("selector", "h1").put("max_chars", 2_000)),
-                    token,
-                ).getJSONObject("data")
-                assertTrue("Android WebView failed to read the page: $read", read.getBoolean("success"))
-                assertTrue(read.getString("data").contains("Example Domain"))
+            val read = requestJson(
+                "POST",
+                "${LocalBackendRuntime.endpoint}/api/v1/tools/browser_automation/invoke",
+                JSONObject().put("args", JSONObject().put("action", "read").put("selector", "h1").put("max_chars", 2_000)),
+                token,
+            ).getJSONObject("data")
+            assertTrue("Android WebView failed to read the page: $read", read.getBoolean("success"))
+            assertTrue(read.getString("data").contains("Example Domain"))
 
-                val evaluated = requestJson(
-                    "POST",
-                    "${LocalBackendRuntime.endpoint}/api/v1/tools/browser_automation/invoke",
-                    JSONObject().put("args", JSONObject().put("action", "evaluate").put("script", "return document.querySelector('h1').textContent + ':native';")),
-                    token,
-                ).getJSONObject("data")
-                assertTrue("Android WebView JavaScript failed: $evaluated", evaluated.getBoolean("success"))
-                assertTrue(evaluated.getString("data").contains("Example Domain:native"))
+            val evaluated = requestJson(
+                "POST",
+                "${LocalBackendRuntime.endpoint}/api/v1/tools/browser_automation/invoke",
+                JSONObject().put("args", JSONObject().put("action", "evaluate").put("script", "return document.querySelector('h1').textContent + ':native';")),
+                token,
+            ).getJSONObject("data")
+            assertTrue("Android WebView JavaScript failed: $evaluated", evaluated.getBoolean("success"))
+            assertTrue(evaluated.getString("data").contains("Example Domain:native"))
 
-                val screenshot = requestJson(
-                    "POST",
-                    "${LocalBackendRuntime.endpoint}/api/v1/tools/browser_automation/invoke",
-                    JSONObject().put("args", JSONObject().put("action", "screenshot").put("name", "android-browser-e2e")),
-                    token,
-                ).getJSONObject("data")
-                assertTrue("Android WebView screenshot failed: $screenshot", screenshot.getBoolean("success"))
-                val screenshotText = screenshot.getString("data")
-                assertTrue(screenshotText.contains("android-browser-e2e.png"))
-                assertTrue(
-                    "Browser screenshot was not persisted in app-private storage",
-                    context.filesDir.resolve("xiaoda/.ai-agent/data/media/browser/android-browser-e2e.png").isFile,
-                )
+            val screenshot = requestJson(
+                "POST",
+                "${LocalBackendRuntime.endpoint}/api/v1/tools/browser_automation/invoke",
+                JSONObject().put("args", JSONObject().put("action", "screenshot").put("name", "android-browser-e2e")),
+                token,
+            ).getJSONObject("data")
+            assertTrue("Android WebView screenshot failed: $screenshot", screenshot.getBoolean("success"))
+            val screenshotText = screenshot.getString("data")
+            assertTrue(screenshotText.contains("android-browser-e2e.png"))
+            assertTrue(
+                "Browser screenshot was not persisted in app-private storage",
+                context.filesDir.resolve("xiaoda/.ai-agent/data/media/browser/android-browser-e2e.png").isFile,
+            )
 
-                val blocked = requestJson(
-                    "POST",
-                    "${LocalBackendRuntime.endpoint}/api/v1/tools/browser_automation/invoke",
-                    JSONObject().put("args", JSONObject().put("action", "open").put("url", "http://169.254.169.254/latest/meta-data")),
-                    token,
-                ).getJSONObject("data")
-                assertFalse("Browser automation allowed a metadata/SSRF target", blocked.getBoolean("success"))
+            val blocked = requestJson(
+                "POST",
+                "${LocalBackendRuntime.endpoint}/api/v1/tools/browser_automation/invoke",
+                JSONObject().put("args", JSONObject().put("action", "open").put("url", "http://169.254.169.254/latest/meta-data")),
+                token,
+            ).getJSONObject("data")
+            assertFalse("Browser automation allowed a metadata/SSRF target", blocked.getBoolean("success"))
             } finally {
                 scenario.close()
             }
