@@ -283,4 +283,8 @@ dependencies {
     androidTestImplementation(libs.androidx.test.core)
     androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation(libs.okhttp.mockwebserver)
+    // 直接 WebSocket 客户端：websocketChatRunsThroughTheEmbeddedAgent 用 okhttp 连内嵌后端
+    // ws://127.0.0.1:8765/ws，替代过去依赖真实 WebView 渲染完整前端 SPA 的 JS 方案。
+    // WebView 渲染在无 GPU 模拟器上要么崩溃(swiftshader)要么慢到超时(-gpu off)，改直接客户端更稳。
+    androidTestImplementation(libs.okhttp)
 }
