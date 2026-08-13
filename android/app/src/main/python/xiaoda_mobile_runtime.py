@@ -55,11 +55,12 @@ def _configure_android_environment(files_dir: str, no_backup_dir: str, cache_dir
     private_root = home / "xiaoda"
     data_root = private_root / ".ai-agent" / "data"
     private_root.mkdir(parents=True, exist_ok=True)
-    # config._resolve_data_path deliberately treats a configured-but-missing
-    # KIOXIA_DATA_DIR as an unavailable removable drive. Android uses the same
-    # variable for its private durable store, so its parent must exist before
-    # importing config or the backend would write into Chaquopy's extracted
-    # source tree instead of the user's app data directory.
+    # 数据目录固定为 HOME/.ai-agent/data（app 私有目录，可写且稳定）。
+    # 注意：不要用 KIOXIA_DATA_DIR 承载移动端数据目录——该变量在 config.py 里
+    # 被当作"外置可移动盘"处理，Android 上若解析到 /data 等 SELinux 保护路径，
+    # 存在性检查会抛 PermissionError 导致模块级初始化崩溃、后端无法启动。
+    # 不设置 KIOXIA_DATA_DIR 时，config._KIOXIA_BASE 走默认 Path.home()/.ai-agent/data，
+    # 与 HOME 一致，数据落点正确。
     data_root.mkdir(parents=True, exist_ok=True)
     _migrate_legacy_android_data(data_root)
     env = {
@@ -68,7 +69,6 @@ def _configure_android_environment(files_dir: str, no_backup_dir: str, cache_dir
         "XIAODA_ANDROID_FILES_DIR": str(home),
         "XIAODA_ANDROID_NO_BACKUP_DIR": str(Path(no_backup_dir).resolve()),
         "TMPDIR": str(Path(cache_dir).resolve()),
-        "KIOXIA_DATA_DIR": str(data_root),
         "CREDENTIAL_SALT_FILE": str(private_root / ".ai-agent" / "config" / "credential_salt.bin"),
         "PYTHONUTF8": "1",
     }
