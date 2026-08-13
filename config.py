@@ -202,8 +202,19 @@ def _resolve_data_path(kioxia_path: Path, fallback_path: Path) -> Path:
     """
     kioxia_env = os.getenv("KIOXIA_DATA_DIR", "")
     if kioxia_env:
-        # 显式配置外置盘：盘未挂载（base 目录不存在）则直接回退，不创建幻影目录
-        if not (kioxia_path.exists() or kioxia_path.parent.exists()):
+        # 显式配置外置盘：盘未挂载（base 目录不存在）则直接回退，不创建幻影目录。
+        # 健壮性：存在性检查本身可能被拒绝（Android 上解析到 /data/media 等
+        # SELinux 保护路径时 pathlib.stat 抛 PermissionError），此时同样回退，
+        # 避免模块级初始化因无从访问的路径直接崩溃。
+        try:
+            base_exists = kioxia_path.exists() or kioxia_path.parent.exists()
+        except OSError:
+            base_exists = False
+            logger.debug(
+                "config.data_path_unreachable kioxia_env={} path={}",
+                kioxia_env, kioxia_path,
+            )
+        if not base_exists:
             # 静默回退，不向控制台打印警告：外置盘未挂载是常见状态，
             # 每次启动刷屏会让用户误以为出错。仅记 debug 日志便于排查。
             logger.debug(
