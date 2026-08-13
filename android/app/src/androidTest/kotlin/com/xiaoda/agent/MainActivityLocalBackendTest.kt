@@ -2,9 +2,12 @@ package com.xiaoda.agent
 
 import android.content.Context
 import android.content.Intent
+import android.view.View
+import android.webkit.WebView
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import com.chaquo.python.Python
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
@@ -860,17 +863,30 @@ class MainActivityLocalBackendTest {
         assertTrue(state is LocalBackendRuntime.State.Ready)
         val token = loginToken()
 
-        // AndroidBrowserAutomation.initialize() 只在 MainActivity.onCreate 被调用，
-        // 若不启动 Activity，webViewRef 为空，browser_automation 工具会报
-        // "Browser WebView is not initialized"。显式启动 MainActivity 以初始化 WebView，
-        // 并在整个测试期间保持存活（LocalBackendRuntime.start 是单例，重复调用无副作用）。
-        val scenario = ActivityScenario.launch<MainActivity>(Intent(context, MainActivity::class.java))
-        LocalHttpPage().use { page ->
-            try {
-                // 模拟器本地页面替代外网 example.com：无 GPU 模拟器上 WebView 渲染外网页面
-                // 慢/不稳定，曾导致该测试超时 300s。调试构建允许移动端回环地址（见
-                // AndroidBrowserAutomation.isAllowedUrl），沙箱对 browser_automation 的 URL
-                // 校验由移动端桥自行负责（见 xiaoda_mobile_runtime 对 _NETWORK_TOOLS 的排除）。
+        // AndroidBrowserAutomation.initialize() 由 MainActivity.onCreate 调用，其内部
+        // 会同时把完整 SPA 前端加载到 UI WebView（SPA 含永久 requestAnimationFrame 动画循环）。
+        // 在无 GPU 模拟器上这些动画持续占满渲染线程，拖慢 browser automation 的独立 WebView，
+        // 曾导致本测试 300s 超时。这里不启动完整 MainActivity，而是直接在主线程构造一个
+        // 独立的 browser WebView 并 initialize()，从而避免 SPA 渲染争抢。browser automation
+        // 的 Python 桥（LocalBackendRuntime.set_android_browser_bridge）不依赖 MainActivity。
+        val browserWebView = AtomicReference<WebView?>()
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        instrumentation.runOnMainSync {
+            val view = WebView(context)
+            // 给出固定尺寸，使 screenshot 的 view.draw 不会因宽高为 0 而异常。
+            val width = View.MeasureSpec.makeMeasureSpec(320, View.MeasureSpec.EXACTLY)
+            val height = View.MeasureSpec.makeMeasureSpec(480, View.MeasureSpec.EXACTLY)
+            view.measure(width, height)
+            view.layout(0, 0, 320, 480)
+            AndroidBrowserAutomation.initialize(view, context.filesDir)
+            browserWebView.set(view)
+        }
+        try {
+            // 模拟器本地页面替代外网 example.com：无 GPU 模拟器上 WebView 渲染外网页面
+            // 慢/不稳定，曾导致该测试超时 300s。调试构建允许移动端回环地址（见
+            // AndroidBrowserAutomation.isAllowedUrl），沙箱对 browser_automation 的 URL
+            // 校验由移动端桥自行负责（见 xiaoda_mobile_runtime 对 _NETWORK_TOOLS 的排除）。
+            LocalHttpPage().use { page ->
                 val opened = requestJson(
                     "POST",
                     "${LocalBackendRuntime.endpoint}/api/v1/tools/browser_automation/invoke",
@@ -918,8 +934,11 @@ class MainActivityLocalBackendTest {
                 token,
             ).getJSONObject("data")
             assertFalse("Browser automation allowed a metadata/SSRF target", blocked.getBoolean("success"))
-            } finally {
-                scenario.close()
+            }
+        } finally {
+            instrumentation.runOnMainSync {
+                AndroidBrowserAutomation.shutdown()
+                browserWebView.get()?.destroy()
             }
         }
     }
