@@ -95,7 +95,8 @@ class MainActivityLocalBackendTest {
         assertTrue(token.isNotBlank())
 
         val providerId = "android_local_${System.currentTimeMillis()}"
-        val apiKey = "sk-android-local-secret-123456"
+        // 假 key：避免 sk- 前缀被 verify_apk 的 FOBIDDEN_SECRET_PATTERNS 误判为真实密钥。
+        val apiKey = "android-local-secret-123456"
         val modelId = "xiaoda-mobile-model"
         val create = requestJson(
             "POST",
