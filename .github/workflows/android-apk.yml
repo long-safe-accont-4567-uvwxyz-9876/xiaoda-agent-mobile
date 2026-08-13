@@ -96,10 +96,11 @@ jobs:
           api-level: 35
           arch: x86_64
           disable-animations: true
-          # -gpu off：guest 纯软件渲染。此前 swiftshader_indirect（host 软件渲染）在跑完整前端 SPA 的
-          # WebView 测试时偶发 "bad color buffer handle" 渲染进程崩溃，导致 Instrumentation 进程崩溃测试失败。
-          # 改 guest 软件渲染提升 WebView 渲染稳定性（代价是略慢，但 CI 有界超时兜底）。
-          emulator-options: -no-window -gpu off -no-snapshot -noaudio -no-boot-anim -camera-back none
+          # websocketChat 已改用 okhttp 直接客户端，不再依赖 WebView 渲染，故可放心用
+          # swiftshader_indirect（host 软件渲染）。此前其崩溃正是发生在该测试跑完整前端 SPA 时，
+          # 现依赖已移除。-gpu off（guest 软件渲染）会让真实 WebView 渲染网页的
+          # androidWebViewBrowserAutomationOperatesLocally 慢到超时，故不用。
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
           working-directory: android
           # 有界脚本：job 级 timeout-minutes 对 emulator-runner 分离的模拟器进程不生效（实测挂 5h 未终止）。
           # 用 coreutils 的 timeout 在脚本层硬性箍住 gradle，保证 step 一定结束、能上传诊断日志定位根因。
