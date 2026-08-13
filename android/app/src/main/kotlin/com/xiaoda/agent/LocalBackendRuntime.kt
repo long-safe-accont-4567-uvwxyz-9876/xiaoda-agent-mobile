@@ -39,6 +39,17 @@ object LocalBackendRuntime {
                 if (!Python.isStarted()) Python.start(AndroidPlatform(context.applicationContext))
                 val python = Python.getInstance()
                 val module = python.getModule("xiaoda_mobile_runtime")
+                // Configure HOME / data dirs BEFORE importing tools.android_browser_tools:
+                // that module transitively imports config.py, which resolves Path.home()-based
+                // paths at import time. If HOME is still Chaquopy's default (app files dir),
+                // the backend would write to files/.ai-agent/ instead of files/xiaoda/.ai-agent/.
+                module.callAttr(
+                    "configure_environment",
+                    context.filesDir.absolutePath,
+                    context.noBackupFilesDir.absolutePath,
+                    context.cacheDir.absolutePath,
+                    bundledConfigDir.absolutePath,
+                )
                 python.getModule("tools.android_browser_tools").callAttr(
                     "set_android_browser_bridge",
                     PyObject.fromJava(AndroidBrowserAutomation),

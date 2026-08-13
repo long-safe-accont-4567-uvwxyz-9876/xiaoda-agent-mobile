@@ -163,8 +163,26 @@ def _run_server(host: str, port: int) -> None:
         sys.stderr = _stderr
 
 
+def configure_environment(files_dir: str, no_backup_dir: str, cache_dir: str, bundled_config: str = "") -> dict[str, str]:
+    """Configure HOME / data dirs / env BEFORE any module that imports config.
+
+    Kotlin must call this before ``python.getModule("tools.android_browser_tools")``:
+    importing that module transitively imports ``config.py``, which resolves
+    ``Path.home()``-based paths at import time. If ``HOME`` is still the Chaquopy
+    default (the app files dir), the backend would write to ``files/.ai-agent/``
+    instead of the intended ``files/xiaoda/.ai-agent/``.
+    """
+    _configure_android_environment(files_dir, no_backup_dir, cache_dir, bundled_config)
+    return dict(os.environ)
+
+
 def start_server(files_dir: str, no_backup_dir: str, cache_dir: str, port: int = 8765, bundled_config: str = "") -> dict[str, Any]:
-    """Start the original Xiaoda FastAPI application on Android loopback."""
+    """Start the original Xiaoda FastAPI application on Android loopback.
+
+    Prefers a prior ``configure_environment`` call (so config.py is imported with
+    the correct HOME), but re-runs the setup defensively in case start_server is
+    invoked standalone.
+    """
     global _server_thread
     _configure_android_environment(files_dir, no_backup_dir, cache_dir, bundled_config)
     if _server_thread is None or not _server_thread.is_alive():
