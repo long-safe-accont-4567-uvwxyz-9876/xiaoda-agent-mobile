@@ -938,8 +938,11 @@ class MainActivityLocalBackendTest {
             }
         } finally {
             instrumentation.runOnMainSync {
+                // shutdown() 已 stopLoading + 加载 about:blank + clearHistory 释放页面。
+                // 不再显式 destroy()：在 SwiftShader 无 GPU 模拟器上销毁 WebView 的 native 渲染
+                // 资源可能引发后续 instrumentation 进程崩溃（bad color buffer handle），
+                // 让页面引用由 shutdown 清理即可。
                 AndroidBrowserAutomation.shutdown()
-                browserWebView.get()?.destroy()
             }
         }
     }
