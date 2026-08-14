@@ -131,6 +131,11 @@ val stagePythonRuntime by tasks.registering(Sync::class) {
         "_test_out*.txt",
         "_pip_out.txt",
         ".env.example",
+        "pyproject.toml",
+        "pytest.ini",
+        "requirements.txt",
+        "xiaoda-agent.spec",
+        "**/*.pyc",
     )
 }
 // Ensure the staged Python tree is ready before any Chaquopy/Android packaging step.
